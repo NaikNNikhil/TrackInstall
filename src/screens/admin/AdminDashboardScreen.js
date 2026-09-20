@@ -1,0 +1,8 @@
+import { ScrollView, StyleSheet, Text, View } from 'react-native';
+import AppHeader from '../../components/AppHeader';
+import ScreenContainer from '../../components/ScreenContainer';
+import StatCard from '../../components/StatCard';
+import { dashboardData } from '../../data/mockData';
+import { colors, radius, spacing, typography } from '../../theme';
+export default function AdminDashboardScreen() { const { name, stats } = dashboardData.admin; return <ScreenContainer><ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.content}><AppHeader greeting={`Welcome, ${name}`} /><Text style={styles.title}>Admin Dashboard</Text><Text style={styles.description}>Manage installers, assigned sites, visits and payments.</Text><View style={styles.grid}>{stats.map((stat) => <StatCard key={stat.label} {...stat} />)}</View><View style={styles.infoCard}><Text style={styles.infoTitle}>Overview</Text><Text style={styles.infoText}>Your operations summary will appear here as the dashboard grows.</Text></View></ScrollView></ScreenContainer>; }
+const styles = StyleSheet.create({ content: { paddingBottom: spacing.xl }, title: { ...typography.title, color: colors.text, marginTop: spacing.md }, description: { ...typography.body, color: colors.textSecondary, marginTop: spacing.xs }, grid: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between', rowGap: spacing.md, marginTop: spacing.lg }, infoCard: { marginTop: spacing.lg, padding: spacing.lg, borderRadius: radius.md, backgroundColor: colors.primarySoft }, infoTitle: { ...typography.heading, color: colors.primary }, infoText: { ...typography.body, color: colors.textSecondary, marginTop: spacing.xs } });

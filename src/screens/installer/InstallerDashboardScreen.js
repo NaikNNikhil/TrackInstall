@@ -1,0 +1,8 @@
+import { ScrollView, StyleSheet, Text, View } from 'react-native';
+import AppHeader from '../../components/AppHeader';
+import ScreenContainer from '../../components/ScreenContainer';
+import StatCard from '../../components/StatCard';
+import { dashboardData } from '../../data/mockData';
+import { colors, radius, spacing, typography } from '../../theme';
+export default function InstallerDashboardScreen() { const { name, stats } = dashboardData.installer; return <ScreenContainer><ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.content}><AppHeader greeting={`Welcome, ${name}`} /><Text style={styles.title}>Installer Dashboard</Text><Text style={styles.description}>View assigned sites and manage installation visits.</Text><View style={styles.grid}>{stats.map((stat) => <StatCard key={stat.label} {...stat} />)}</View><View style={styles.infoCard}><Text style={styles.infoTitle}>Today’s work</Text><Text style={styles.infoText}>Your assigned installation activity will appear here in the next module.</Text></View></ScrollView></ScreenContainer>; }
+const styles = StyleSheet.create({ content: { paddingBottom: spacing.xl }, title: { ...typography.title, color: colors.text, marginTop: spacing.md }, description: { ...typography.body, color: colors.textSecondary, marginTop: spacing.xs }, grid: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between', rowGap: spacing.md, marginTop: spacing.lg }, infoCard: { marginTop: spacing.lg, padding: spacing.lg, borderRadius: radius.md, backgroundColor: colors.primarySoft }, infoTitle: { ...typography.heading, color: colors.primary }, infoText: { ...typography.body, color: colors.textSecondary, marginTop: spacing.xs } });
