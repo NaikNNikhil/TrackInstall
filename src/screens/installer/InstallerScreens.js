@@ -16,21 +16,196 @@ const Select = ({ label, value, options, onSelect }) => { const [open, setOpen] 
 const SiteCard = ({ site, navigation }) => <Pressable style={s.card} onPress={() => navigation.navigate('InstallerSiteDetails', { siteId: site.id })}><View style={s.row}><Text style={s.cardTitle}>{site.name}</Text><StatusBadge status={site.status} /></View><Text style={s.meta}>{site.orderId} • {site.city}</Text><Text style={s.meta}>{site.customer} • {site.address}</Text></Pressable>;
 const VisitCard = ({ visit, site }) => <View style={s.card}><View style={s.row}><Text style={s.cardTitle}>Visit {visit.number} • {site.name}</Text><StatusBadge status={visit.status} /></View><Text style={s.meta}>{visit.date} • {visit.type === 'EXTRA' ? 'Extra visit' : 'Normal visit'}</Text><Text style={s.meta}>{visit.reason}{visit.remark ? ` — ${visit.remark}` : ''}</Text>{visit.status === 'REJECTED' && visit.rejectionReason ? <Text style={styles.rejected}>Reason: {visit.rejectionReason}</Text> : null}</View>;
 
-export function InstallerDashboard({ navigation }) { const { sites, visits } = useAdminData(); const assigned = sites.filter((site) => site.installerId === INSTALLER_ID); const siteVisits = visits.filter((visit) => assigned.some((site) => site.id === visit.siteId)); const pending = siteVisits.filter((visit) => visit.type === 'EXTRA' && visit.status === 'PENDING_APPROVAL'); const cards = [{ label: 'Assigned Sites', value: assigned.length }, { label: 'Visits Completed', value: siteVisits.filter((visit) => visit.status === 'COMPLETED').length }, { label: 'Pending Approvals', value: pending.length }, { label: 'Active Sites', value: assigned.filter((site) => site.status === 'IN_PROGRESS').length }]; return <Page><AppHeader greeting="Welcome, Rahul Patil" /><Text style={s.title}>Installer Dashboard</Text><Text style={s.subtitle}>View assigned sites and request extra installation visits.</Text><View style={styles.grid}>{cards.map((card) => <StatCard key={card.label} {...card} />)}</View><SectionHeader title="Active Sites" action="View All" onPress={() => navigation.navigate('AssignedSites')} />{assigned.filter((site) => site.status !== 'COMPLETED').slice(0, 3).map((site) => <SiteCard key={site.id} site={site} navigation={navigation} />)}{!assigned.length ? <EmptyState text="No sites assigned yet." /> : null}</Page>; }
-export function AssignedSites({ navigation }) { const { sites } = useAdminData(); const [query, setQuery] = useState(''); const [status, setStatus] = useState('All'); const list = sites.filter((site) => site.installerId === INSTALLER_ID && (status === 'All' || site.status === status) && `${site.name} ${site.customer} ${site.city}`.toLowerCase().includes(query.toLowerCase())); return <Page><Text style={s.title}>Assigned Sites</Text><Text style={s.subtitle}>Your installation jobs and customer information.</Text><SearchBar value={query} onChangeText={setQuery} placeholder="Search site, city or customer" /><FilterChips options={['All', 'ASSIGNED', 'IN_PROGRESS', 'COMPLETED']} selected={status} onSelect={setStatus} />{list.length ? list.map((site) => <SiteCard key={site.id} site={site} navigation={navigation} />) : <EmptyState text="No assigned sites found." />}</Page>; }
-export function InstallerSiteDetails({ route, navigation }) { const { sites, visits } = useAdminData(); const site = sites.find((item) => item.id === route.params.siteId); const siteVisits = visits.filter((item) => item.siteId === site.id); return <Page><Text style={s.title}>{site.name}</Text><Text style={s.subtitle}>{site.orderId} • {site.city}</Text><View style={s.card}><Text style={s.cardTitle}>{site.customer}</Text><Text style={s.meta}>{site.contact} • {site.address}</Text><View style={styles.status}><StatusBadge status={site.status} /></View></View><SectionHeader title="Door Items — Saved Rates" />{site.doors.map((item) => <View key={item.type} style={[s.card, s.row]}><View><Text style={s.cardTitle}>{item.type}</Text><Text style={s.meta}>Quantity: {item.quantity}</Text></View><Text style={styles.rate}>{money(item.charge)}</Text></View>)}<View style={s.card}><Text style={s.cardTitle}>Visit Information</Text><Text style={s.meta}>Expected Visit Count: 0</Text><Text style={s.meta}>Visits submitted: {siteVisits.length} • Visiting charge snapshot: {money(site.visitCharge)}</Text></View><SectionHeader title="Visit History" action="View All" onPress={() => navigation.navigate('InstallerVisitHistory', { siteId: site.id })} />{siteVisits.slice(-2).reverse().map((visit) => <VisitCard key={visit.id} visit={visit} site={site} />)}<PrimaryButton title="Add Extra Visit" onPress={() => navigation.navigate('InstallerAddVisit', { siteId: site.id })} /><SecondaryButton title="Order Form" onPress={() => navigation.navigate('InstallerOrderForm', { siteId: site.id })} style={styles.button} /></Page>; }
+export function InstallerDashboard({ navigation }) {
+  const { sites, visits } = useAdminData(); const assigned = sites.filter((site) => site.installerId === INSTALLER_ID); const siteVisits = visits.filter((visit) => assigned.some((site) => site.id === visit.siteId)); const pending = siteVisits.filter((visit) => visit.type === 'EXTRA' && visit.status === 'PENDING_APPROVAL'); const cards = [
+    {
+      label: 'Assigned Sites',
+      value: assigned.filter((site) => site.status === 'ASSIGNED').length
+    },
+    {
+      label: 'Visits Completed',
+      value: siteVisits.filter((visit) => visit.status === 'COMPLETED').length
+    },
+    {
+      label: 'Pending Approvals',
+      value: pending.length
+    },
+    {
+      label: 'Completed Sites',
+      value: assigned.filter((site) => site.status === 'COMPLETED').length
+    },
+  ]; return <Page><AppHeader greeting="Welcome, Rahul Patil" /><Text style={s.title}>Installer Dashboard</Text><Text style={s.subtitle}>View assigned sites and request extra installation visits.</Text><View style={styles.grid}>{cards.map((card) => <StatCard key={card.label} {...card} />)}</View><SectionHeader title="Active Sites" action="View All" onPress={() => navigation.navigate('AssignedSites')} />{assigned.filter((site) => site.status !== 'COMPLETED').slice(0, 3).map((site) => <SiteCard key={site.id} site={site} navigation={navigation} />)}{!assigned.length ? <EmptyState text="No sites assigned yet." /> : null}</Page>;
+}
+export function AssignedSites({ navigation }) { const { sites } = useAdminData(); const [query, setQuery] = useState(''); const [status, setStatus] = useState('All'); const list = sites.filter((site) => site.installerId === INSTALLER_ID && (status === 'All' || site.status === status) && `${site.name} ${site.customer} ${site.city}`.toLowerCase().includes(query.toLowerCase())); return <Page><Text style={s.title}>Assigned Sites</Text><Text style={s.subtitle}>Your installation jobs and customer information.</Text><SearchBar value={query} onChangeText={setQuery} placeholder="Search site, city or customer" /><FilterChips options={['All', 'ASSIGNED', 'COMPLETED']} selected={status} onSelect={setStatus} />{list.length ? list.map((site) => <SiteCard key={site.id} site={site} navigation={navigation} />) : <EmptyState text="No assigned sites found." />}</Page>; }
+export function InstallerSiteDetails({ route, navigation }) {
+  const { sites, visits, saveSite } = useAdminData();
+
+  const site = sites.find((item) => item.id === route.params.siteId);
+
+  if (!site) {
+    return (
+      <Page>
+        <Text style={s.title}>Site Not Found</Text>
+        <Text style={s.subtitle}>
+          The requested site could not be found.
+        </Text>
+      </Page>
+    );
+  }
+
+  const siteVisits = visits.filter((item) => item.siteId === site.id);
+
+  const isCompleted = site.status === 'COMPLETED' || site.status === 'PAID';
+
+  const handleMarkComplete = () => {
+    Alert.alert(
+      'Mark Installation Complete',
+      'Are you sure the installation at this site is complete?',
+      [
+        {
+          text: 'Cancel',
+          style: 'cancel',
+        },
+        {
+          text: 'Confirm',
+          onPress: () => {
+            const hasPendingExtraVisit = visits.some(
+              (visit) =>
+                visit.siteId === site.id &&
+                visit.type === 'EXTRA' &&
+                visit.status === 'PENDING_APPROVAL'
+            );
+
+            saveSite({
+              ...site,
+              status: 'COMPLETED',
+              paymentStatus: hasPendingExtraVisit
+                ? 'NOT_READY'
+                : 'PAYMENT_PENDING',
+            });
+          },
+        },
+      ]
+    );
+  };
+
+  return (
+    <Page>
+      <Text style={s.title}>{site.name}</Text>
+
+      <Text style={s.subtitle}>
+        {site.orderId} • {site.city}
+      </Text>
+
+      <View style={s.card}>
+        <Text style={s.cardTitle}>{site.customer}</Text>
+
+        <Text style={s.meta}>
+          {site.contact} • {site.address}
+        </Text>
+
+        <View style={styles.status}>
+          <StatusBadge status={site.status} />
+        </View>
+      </View>
+
+      <SectionHeader title="Door Items — Saved Rates" />
+
+      {site.doors.map((item) => (
+        <View
+          key={item.type}
+          style={[s.card, s.row]}
+        >
+          <View>
+            <Text style={s.cardTitle}>{item.type}</Text>
+
+            <Text style={s.meta}>
+              Quantity: {item.quantity}
+            </Text>
+          </View>
+
+          <Text style={styles.rate}>
+            {money(item.charge)}
+          </Text>
+        </View>
+      ))}
+
+      <View style={s.card}>
+        <Text style={s.cardTitle}>Visit Information</Text>
+
+        <Text style={s.meta}>
+          Expected Visit Count: {site.expectedVisits ?? 0}
+        </Text>
+
+        <Text style={s.meta}>
+          Visits submitted: {siteVisits.length} • Visiting charge snapshot:{' '}
+          {money(site.visitCharge)}
+        </Text>
+      </View>
+
+      <SectionHeader
+        title="Visit History"
+        action="View All"
+        onPress={() =>
+          navigation.navigate('InstallerVisitHistory', {
+            siteId: site.id,
+          })
+        }
+      />
+
+      {siteVisits
+        .slice(-2)
+        .reverse()
+        .map((visit) => (
+          <VisitCard
+            key={visit.id}
+            visit={visit}
+            site={site}
+          />
+        ))}
+
+      <PrimaryButton
+        title="Add Extra Visit"
+        onPress={() =>
+          navigation.navigate('InstallerAddVisit', {
+            siteId: site.id,
+          })
+        }
+      />
+
+      {!isCompleted && (
+        <PrimaryButton
+          title="Mark Installation Complete"
+          onPress={handleMarkComplete}
+        />
+      )}
+
+      <SecondaryButton
+        title="Order Form"
+        onPress={() =>
+          navigation.navigate('InstallerOrderForm', {
+            siteId: site.id,
+          })
+        }
+        style={styles.button}
+      />
+    </Page>
+  );
+}
 export function InstallerOrderForm({ route }) { const { sites } = useAdminData(); const site = sites.find((item) => item.id === route.params.siteId); const extension = site.orderFile?.split('.').pop()?.toUpperCase(); return <Page><Text style={s.title}>Order Form</Text><Text style={s.subtitle}>{site.name}</Text><View style={s.card}><Text style={s.cardTitle}>{site.orderFile || 'No order form selected'}</Text><Text style={s.meta}>{site.orderFile ? `${extension} document — mock preview` : 'Ask your administrator to attach an order form.'}</Text></View>{site.orderFile ? <PrimaryButton title="Open Preview" onPress={() => Alert.alert('Order form preview', `Mock preview opened for ${site.orderFile}.`)} /> : null}</Page>; }
 export function InstallerVisitHistory({ route, navigation }) { const { sites, visits } = useAdminData(); const selectedId = route.params?.siteId; const assigned = sites.filter((site) => site.installerId === INSTALLER_ID); const list = visits.filter((visit) => assigned.some((site) => site.id === visit.siteId) && (!selectedId || visit.siteId === selectedId)); return <Page><Text style={s.title}>Visit History</Text><Text style={s.subtitle}>{selectedId ? 'Visits for this site.' : 'All submitted installation visits.'}</Text>{selectedId ? <PrimaryButton title="Add Extra Visit" onPress={() => navigation.navigate('InstallerAddVisit', { siteId: selectedId })} /> : null}{list.length ? list.slice().reverse().map((visit) => <VisitCard key={visit.id} visit={visit} site={sites.find((site) => site.id === visit.siteId)} />) : <EmptyState text="No visits recorded yet." />}</Page>; }
-export function InstallerAddVisit({ route, navigation }) { const { sites, addVisit } = useAdminData(); const site = sites.find((item) => item.id === route.params.siteId); const [date, setDate] = useState('10 Sep 2026'); const [reason, setReason] = useState(''); const [remark, setRemark] = useState(''); const submit = () => { if (!date || !reason) return Alert.alert('Missing details', 'Select a visit date and reason.'); addVisit({ siteId: site.id, date, reason, remark }); Alert.alert('Extra visit requested', 'This visit is pending Admin approval and is not payment eligible until approved.'); navigation.replace('InstallerVisitHistory', { siteId: site.id }); }; return <Page><Text style={s.title}>Add Extra Visit</Text><Text style={s.subtitle}>{site.name}</Text><View style={s.card}><Text style={s.cardTitle}>Admin approval required</Text><Text style={s.meta}>Expected Visit Count is 0, so every new visit is submitted as an extra visit.</Text><Text style={s.meta}>Site visiting charge snapshot: {money(site.visitCharge)}</Text></View><Field label="Visit Date" value={date} onChangeText={setDate} placeholder="DD Mon YYYY" /><Select label="Reason" value={reason} options={[
-  'Customer unavailable',
-  'Material unavailable',
-  'Site not ready',
-  'Rework/Correction',
-  'Installation incomplete',
-  'Customer requested additional visit',
-  'Technical issue',
-  'Other'
-]} onSelect={setReason} /><Field label="Remark" value={remark} onChangeText={setRemark} placeholder="Add a short note" /><SecondaryButton title="Cancel" onPress={() => navigation.goBack()} /><PrimaryButton title="Submit for Approval" onPress={submit} style={styles.button} /></Page>; }
+export function InstallerAddVisit({ route, navigation }) {
+  const { sites, addVisit } = useAdminData(); const site = sites.find((item) => item.id === route.params.siteId); const [date, setDate] = useState('10 Sep 2026'); const [reason, setReason] = useState(''); const [remark, setRemark] = useState(''); const submit = () => { if (!date || !reason) return Alert.alert('Missing details', 'Select a visit date and reason.'); addVisit({ siteId: site.id, date, reason, remark }); Alert.alert('Extra visit requested', 'This visit is pending Admin approval and is not payment eligible until approved.'); navigation.replace('InstallerVisitHistory', { siteId: site.id }); }; return <Page><Text style={s.title}>Add Extra Visit</Text><Text style={s.subtitle}>{site.name}</Text><View style={s.card}><Text style={s.cardTitle}>Admin approval required</Text><Text style={s.meta}>Expected Visit Count is 0, so every new visit is submitted as an extra visit.</Text><Text style={s.meta}>Site visiting charge snapshot: {money(site.visitCharge)}</Text></View><Field label="Visit Date" value={date} onChangeText={setDate} placeholder="DD Mon YYYY" /><Select label="Reason" value={reason} options={[
+    'Customer unavailable',
+    'Material unavailable',
+    'Site not ready',
+    'Rework/Correction',
+    'Installation incomplete',
+    'Customer requested additional visit',
+    'Technical issue',
+    'Other'
+  ]} onSelect={setReason} /><Field label="Remark" value={remark} onChangeText={setRemark} placeholder="Add a short note" /><SecondaryButton title="Cancel" onPress={() => navigation.goBack()} /><PrimaryButton title="Submit for Approval" onPress={submit} style={styles.button} /></Page>;
+}
 export function InstallerExtraRequests() { const { sites, visits } = useAdminData(); const [filter, setFilter] = useState('All'); const list = visits.filter((visit) => visit.type === 'EXTRA' && sites.some((site) => site.id === visit.siteId && site.installerId === INSTALLER_ID) && (filter === 'All' || visit.status === filter)); return <Page><Text style={s.title}>Extra Visit Requests</Text><Text style={s.subtitle}>Track approval status for submitted extra visits.</Text><FilterChips options={['All', 'PENDING_APPROVAL', 'APPROVED', 'REJECTED']} selected={filter} onSelect={setFilter} />{list.length ? list.slice().reverse().map((visit) => <VisitCard key={visit.id} visit={visit} site={sites.find((site) => site.id === visit.siteId)} />) : <EmptyState text="No extra visit requests found." />}</Page>; }
 export function InstallerMore({ navigation }) { const logout = () => navigation.getParent('RootStack')?.reset({ index: 0, routes: [{ name: 'AuthFlow' }] }); return <Page><AppHeader greeting="Rahul Patil" /><Text style={s.title}>More</Text>{[['InstallerVisitHistory', 'Visit History', 'Review all submitted visits'], ['InstallerExtraRequests', 'Extra Visit Requests', 'Track approval status']].map(([route, title, description]) => <Pressable key={route} style={s.card} onPress={() => navigation.navigate(route)}><Text style={s.cardTitle}>{title}</Text><Text style={s.meta}>{description}</Text></Pressable>)}<Pressable style={s.card} onPress={logout}><Text style={styles.logout}>Logout</Text><Text style={s.meta}>Return to Demo Login</Text></Pressable></Page>; }
 const styles = StyleSheet.create({ grid: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between', rowGap: spacing.md, marginTop: spacing.lg }, field: { marginTop: spacing.md }, label: { ...typography.label, color: colors.text }, input: { height: 50, marginTop: spacing.xs, paddingHorizontal: spacing.md, borderWidth: 1, borderColor: colors.border, borderRadius: 12, backgroundColor: colors.surface, color: colors.text }, select: { minHeight: 50, marginTop: spacing.xs, paddingHorizontal: spacing.md, borderWidth: 1, borderColor: colors.border, borderRadius: 12, backgroundColor: colors.surface, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }, selectText: { ...typography.body, color: colors.text }, placeholder: { color: colors.textSecondary }, arrow: { ...typography.heading, color: colors.primary }, overlay: { flex: 1, justifyContent: 'center', padding: spacing.lg, backgroundColor: 'rgba(23,33,43,0.35)' }, modal: { backgroundColor: colors.surface, borderRadius: 12, overflow: 'hidden' }, option: { padding: spacing.md, borderBottomWidth: 1, borderBottomColor: colors.border }, optionText: { ...typography.body, color: colors.text }, rate: { ...typography.heading, color: colors.primary }, status: { marginTop: spacing.sm }, button: { marginTop: spacing.sm }, rejected: { ...typography.caption, color: '#B42318', marginTop: spacing.xs }, logout: { ...typography.heading, color: '#B42318' } });
