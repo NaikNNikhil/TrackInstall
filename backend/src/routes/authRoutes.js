@@ -21,28 +21,4 @@ router.get('/me', requireAuth, (req, res) => {
   });
 });
 
-router.get(
-  '/admin-test',
-  requireAuth,
-  requireAdmin,
-  (req, res) => {
-    return res.status(200).json({
-      success: true,
-      message: 'Admin access granted',
-    });
-  }
-);
-
-router.get(
-  '/installer-test',
-  requireAuth,
-  requireInstaller,
-  (req, res) => {
-    return res.status(200).json({
-      success: true,
-      message: 'Installer access granted',
-    });
-  }
-);
-
 module.exports = router;
