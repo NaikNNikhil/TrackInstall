@@ -1,5 +1,6 @@
-import { useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Alert, Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { useFocusEffect } from '@react-navigation/native';
 import AppHeader from '../../components/AppHeader';
 import PrimaryButton from '../../components/PrimaryButton';
 import SecondaryButton from '../../components/SecondaryButton';
@@ -8,29 +9,488 @@ import StatCard from '../../components/StatCard';
 import { EmptyState, FilterChips, SearchBar, SectionHeader, StatusBadge, adminStyles as s } from '../../components/AdminUI';
 import { getSiteTotal, money, useAdminData } from '../../data/AdminDataContext';
 import { colors, spacing, typography } from '../../theme';
+import { useAuth } from '../../auth';
+import { apiClient } from '../../api';
 const Page = ({ children }) => <ScreenContainer><ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={s.page}>{children}</ScrollView></ScreenContainer>;
 const InstallerRow = ({ installer, navigation }) => {
   const { sites } = useAdminData(); const assigned = sites.filter((x) => x.installerId === installer.id); return <Pressable style={s.card} onPress={() => navigation.navigate('InstallerDetails', { installerId: installer.id })}><View style={s.row}><Text style={s.cardTitle}>{installer.name}</Text><StatusBadge status={installer.status} /></View><Text style={s.meta}>{installer.phone}  •  {installer.city}</Text><Text style={s.meta}>
     Assigned: {assigned.filter((x) => x.status === 'ASSIGNED').length} • Completed: {assigned.filter((x) => x.status === 'COMPLETED').length}
   </Text></Pressable>;
 };
+
 const SiteRow = ({ site, navigation }) => { const { installers, visits } = useAdminData(); const installer = installers.find((x) => x.id === site.installerId); const done = visits.filter((x) => x.siteId === site.id && x.status === 'COMPLETED').length; return <Pressable style={s.card} onPress={() => navigation.navigate('SiteDetails', { siteId: site.id })}><View style={s.row}><Text style={s.cardTitle}>{site.name}</Text><StatusBadge status={site.status} /></View><Text style={s.meta}>{site.orderId}  •  {site.city}  •  {installer?.name}</Text><Text style={s.meta}>{site.doors.map((x) => `${x.type} × ${x.quantity}`).join(', ')}</Text><Text style={s.meta}>Visits: {done}/{site.expectedVisits}  •  Payment: {site.paymentStatus.replace('_', ' ')}</Text></Pressable>; };
 export function Dashboard({ navigation }) { const { installers, sites, visits, cities } = useAdminData(); const pending = visits.filter((x) => x.status === 'PENDING_APPROVAL'); const cards = [{ label: 'Total Cities', value: cities.length }, { label: 'Total Installers', value: installers.length }, { label: 'Assigned Sites', value: sites.filter((x) => x.status === 'ASSIGNED').length }, { label: 'Completed Sites', value: sites.filter((x) => x.status === 'COMPLETED').length }, { label: 'Pending Approvals', value: pending.length }, { label: 'Pending Payments', value: money(sites.filter((x) => x.paymentStatus === 'PAYMENT_PENDING').reduce((sum, x) => sum + getSiteTotal(x, visits).total, 0)) }]; return <Page><AppHeader greeting="Welcome, Admin" /><Text style={s.title}>Admin Dashboard</Text><Text style={s.subtitle}>Stay on top of installation operations.</Text><View style={styles.grid}>{cards.map((x) => <StatCard key={x.label} {...x} />)}</View><SectionHeader title="Pending Approvals" action="View All" onPress={() => navigation.navigate('Approvals')} />{pending.slice(0, 2).map((v) => { const site = sites.find((x) => x.id === v.siteId); const installer = installers.find((x) => x.id === site.installerId); return <Pressable key={v.id} onPress={() => navigation.navigate('VisitDetails', { visitId: v.id })} style={s.card}><View style={s.row}><Text style={s.cardTitle}>{site.name}</Text><StatusBadge status={v.status} /></View><Text style={s.meta}>{installer.name}  •  Visit {v.number}  •  {v.reason}</Text></Pressable>; })}<SectionHeader title="Recent Sites" action="View Sites" onPress={() => navigation.navigate('Sites')} />{sites.slice(0, 3).map((x) => <SiteRow key={x.id} site={x} navigation={navigation} />)}</Page>; }
-export function MoreScreen({ navigation }) { const logout = () => navigation.getParent('RootStack')?.reset({ index: 0, routes: [{ name: 'AuthFlow' }] }); return <Page><AppHeader greeting="Admin tools" /><Text style={s.title}>More</Text>{[['Sites', 'Manage assigned site jobs'], ['Installers', 'Manage your installation team'], ['Visits', 'Review all site visits'], ['Approvals', 'Approve extra visits'], ['Payments', 'Manage site payments']].map(([name, desc]) => <Pressable key={name} style={s.card} onPress={() => navigation.navigate(name)}><Text style={s.cardTitle}>{name}</Text><Text style={s.meta}>{desc}</Text></Pressable>)}<Pressable style={s.card} onPress={logout}><Text style={[s.cardTitle, styles.logout]}>Logout</Text><Text style={s.meta}>Return to Demo Login</Text></Pressable></Page>; }
+export function MoreScreen({ navigation }) { const { logout: authLogout } = useAuth(); const logout = async () => { if (authLogout) await authLogout(); navigation.getParent('RootStack')?.reset({ index: 0, routes: [{ name: 'AuthFlow' }] }); }; return <Page><AppHeader greeting="Admin tools" /><Text style={s.title}>More</Text>{[['Sites', 'Manage assigned site jobs'], ['Installers', 'Manage your installation team'], ['Visits', 'Review all site visits'], ['Approvals', 'Approve extra visits'], ['Payments', 'Manage site payments']].map(([name, desc]) => <Pressable key={name} style={s.card} onPress={() => navigation.navigate(name)}><Text style={s.cardTitle}>{name}</Text><Text style={s.meta}>{desc}</Text></Pressable>)}<Pressable style={s.card} onPress={logout}><Text style={[s.cardTitle, styles.logout]}>Logout</Text><Text style={s.meta}>Return to Login</Text></Pressable></Page>; }
 export function CitiesScreen({ navigation }) {
-  const { cities, installers, sites } = useAdminData(); return <Page><View style={s.row}><View><Text style={s.title}>Cities</Text><Text style={s.subtitle}>View installation operations by location.</Text></View><Pressable onPress={() => navigation.navigate('AddCity')}><Text style={styles.add}>+ Add City</Text></Pressable></View>{cities.map((city) => {
-    const citySites = sites.filter((x) => x.city === city); return <Pressable key={city} style={s.card} onPress={() => navigation.navigate('CityDetails', { city })}><Text style={s.cardTitle}>{city}</Text><Text style={s.meta}>
-      Installers: {installers.filter((x) => x.city === city).length}  •  Assigned Sites: {citySites.filter((x) => x.status === 'ASSIGNED').length}
-    </Text><Text style={s.meta}>Completed: {citySites.filter((x) => x.status === 'COMPLETED').length}</Text></Pressable>;
-  })}</Page>;
+  const { installers, sites } = useAdminData();
+  const { token } = useAuth();
+
+  const [cities, setCities] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+
+  const loadCities = async () => {
+    try {
+      setLoading(true);
+      setError('');
+
+      const response = await apiClient.get('/admin/cities', { token });
+
+      setCities(response?.data || []);
+    } catch (err) {
+      setError(err.message || 'Failed to load cities.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useFocusEffect(
+    useCallback(() => {
+      loadCities();
+    }, [token])
+  );
+
+  if (loading) {
+    return (
+      <Page>
+        <Text style={s.title}>Cities</Text>
+        <Text style={s.subtitle}>Loading cities...</Text>
+      </Page>
+    );
+  }
+
+  if (error) {
+    return (
+      <Page>
+        <Text style={s.title}>Cities</Text>
+        <Text style={s.subtitle}>{error}</Text>
+
+        <Pressable onPress={loadCities}>
+          <Text style={styles.add}>Retry</Text>
+        </Pressable>
+      </Page>
+    );
+  }
+
+  return (
+    <Page>
+      <View style={s.row}>
+        <View>
+          <Text style={s.title}>Cities</Text>
+          <Text style={s.subtitle}>
+            View installation operations by location.
+          </Text>
+        </View>
+
+        <Pressable onPress={() => navigation.navigate('AddCity')}>
+          <Text style={styles.add}>+ Add City</Text>
+        </Pressable>
+      </View>
+
+      {cities.map((city) => {
+        const cityName = city.name;
+        const citySites = sites.filter((x) => x.city === cityName);
+
+        return (
+          <Pressable
+            key={city.id}
+            style={s.card}
+            onPress={() =>
+              navigation.navigate('CityDetails', { city: cityName })
+            }
+          >
+            <Text style={s.cardTitle}>{cityName}</Text>
+
+            <Text style={s.meta}>
+              Installers:{' '}
+              {installers.filter((x) => x.city === cityName).length}
+              {' • '}
+              Assigned Sites:{' '}
+              {citySites.filter((x) => x.status === 'ASSIGNED').length}
+            </Text>
+
+            <Text style={s.meta}>
+              Completed:{' '}
+              {citySites.filter((x) => x.status === 'COMPLETED').length}
+            </Text>
+          </Pressable>
+        );
+      })}
+    </Page>
+  );
 }
-export function AddCity({ navigation }) { const { addCity } = useAdminData(); const [name, setName] = useState(''); const save = () => { const city = addCity(name); if (!city) return Alert.alert('Unable to save city', name.trim() ? 'This city already exists.' : 'City Name is required.'); Alert.alert('City added', `${city} is now available across the Admin forms.`); navigation.goBack(); }; return <Page><Text style={s.title}>Add City</Text><Text style={s.subtitle}>Create a city for installer and site assignments.</Text><Field label="City Name" value={name} onChangeText={setName} placeholder="Enter city name" /><SecondaryButton title="Cancel" onPress={() => navigation.goBack()} /><PrimaryButton title="Save City" onPress={save} style={styles.actionButton} /></Page>; }
+
+export function AddCity({ navigation }) {
+  const { token } = useAuth();
+
+  const [name, setName] = useState('');
+  const [saving, setSaving] = useState(false);
+
+  const save = async () => {
+    const cityName = name.trim();
+
+    if (!cityName) {
+      Alert.alert('Unable to save city', 'City Name is required.');
+      return;
+    }
+
+    try {
+      setSaving(true);
+
+      await apiClient.post(
+        '/admin/cities',
+        { name: cityName },
+        { token }
+      );
+
+      Alert.alert(
+        'City added',
+        `${cityName} has been added successfully.`
+      );
+
+      navigation.goBack();
+    } catch (err) {
+      Alert.alert(
+        'Unable to save city',
+        err.message || 'Failed to add city.'
+      );
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <Page>
+      <Text style={s.title}>Add City</Text>
+
+      <Text style={s.subtitle}>
+        Create a city for installer and site assignments.
+      </Text>
+
+      <Field
+        label="City Name"
+        value={name}
+        onChangeText={setName}
+        placeholder="Enter city name"
+      />
+
+      <SecondaryButton
+        title="Cancel"
+        onPress={() => navigation.goBack()}
+      />
+
+      <PrimaryButton
+        title={saving ? 'Saving...' : 'Save City'}
+        onPress={save}
+        style={styles.actionButton}
+        disabled={saving}
+      />
+    </Page>
+  );
+}
 export function CityDetails({ route, navigation }) { const { city } = route.params; const { installers, sites, visits } = useAdminData(); const cityInstallers = installers.filter((x) => x.city === city), citySites = sites.filter((x) => x.city === city); return <Page><Text style={s.title}>{city}</Text><Text style={s.subtitle}>City operations overview</Text><View style={styles.grid}>{[{ label: 'Installers', value: cityInstallers.length }, { label: 'Assigned Sites', value: citySites.filter((x) => x.status === 'ASSIGNED').length }, { label: 'Completed', value: citySites.filter((x) => x.status === 'COMPLETED').length }, { label: 'Pending Visits', value: visits.filter((x) => citySites.some((a) => a.id === x.siteId) && x.status === 'PENDING_APPROVAL').length }].map((x) => <StatCard key={x.label}{...x} />)}</View><SectionHeader title="Installers in this city" />{cityInstallers.map((x) => <InstallerRow key={x.id} installer={x} navigation={navigation} />)}<SectionHeader title="Sites in this city" />{citySites.map((x) => <SiteRow key={x.id} site={x} navigation={navigation} />)}</Page>; }
-export function InstallersScreen({ navigation }) { const { installers, cities } = useAdminData(); const [query, setQuery] = useState(''), [city, setCity] = useState('All'), [status, setStatus] = useState('All'); const list = installers.filter((x) => (city === 'All' || x.city === city) && (status === 'All' || x.status === status) && x.name.toLowerCase().includes(query.toLowerCase())); return <Page><View style={s.row}><View><Text style={s.title}>Installers</Text><Text style={s.subtitle}>Manage your installation team.</Text></View><Pressable onPress={() => navigation.navigate('AddInstaller')}><Text style={styles.add}>+ Add</Text></Pressable></View><SearchBar value={query} onChangeText={setQuery} placeholder="Search installer" /><FilterChips options={['All', ...cities]} selected={city} onSelect={setCity} /><FilterChips options={['All', 'ACTIVE', 'INACTIVE']} selected={status} onSelect={setStatus} />{list.length ? list.map((x) => <InstallerRow key={x.id} installer={x} navigation={navigation} />) : <EmptyState text="No installers found for these filters." />}</Page>; }
+export function InstallersScreen({ navigation }) {
+  const { cities } = useAdminData();
+  const { token } = useAuth();
+
+  const [installers, setInstallers] = useState([]);
+  const [query, setQuery] = useState('');
+  const [city, setCity] = useState('All');
+  const [status, setStatus] = useState('All');
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+
+  const loadInstallers = async () => {
+    try {
+      setLoading(true);
+      setError('');
+
+      const response = await apiClient.get('/admin/installers', { token });
+      
+      setInstallers(response?.data || []);
+    } catch (err) {
+      setError(err.message || 'Failed to load installers.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useFocusEffect(
+    useCallback(() => {
+      loadInstallers();
+    }, [token])
+  );
+
+  const list = installers.filter(
+    (x) =>
+      (city === 'All' || x.city_name === city) &&
+      (status === 'All' ||
+        (status === 'ACTIVE' && x.is_active) ||
+        (status === 'INACTIVE' && !x.is_active)) &&
+      x.name.toLowerCase().includes(query.toLowerCase())
+  );
+
+  if (loading) {
+    return (
+      <Page>
+        <Text style={s.title}>Installers</Text>
+        <Text style={s.subtitle}>Loading installers...</Text>
+      </Page>
+    );
+  }
+
+  if (error) {
+    return (
+      <Page>
+        <Text style={s.title}>Installers</Text>
+        <Text style={s.subtitle}>{error}</Text>
+
+        <Pressable onPress={loadInstallers}>
+          <Text style={styles.add}>Retry</Text>
+        </Pressable>
+      </Page>
+    );
+  }
+
+  return (
+    <Page>
+      <View style={s.row}>
+        <View>
+          <Text style={s.title}>Installers</Text>
+          <Text style={s.subtitle}>Manage your installation team.</Text>
+        </View>
+
+        <Pressable onPress={() => navigation.navigate('AddInstaller')}>
+          <Text style={styles.add}>+ Add</Text>
+        </Pressable>
+      </View>
+
+      <SearchBar
+        value={query}
+        onChangeText={setQuery}
+        placeholder="Search installer"
+      />
+
+      <FilterChips
+        options={['All', ...cities]}
+        selected={city}
+        onSelect={setCity}
+      />
+
+      <FilterChips
+        options={['All', 'ACTIVE', 'INACTIVE']}
+        selected={status}
+        onSelect={setStatus}
+      />
+
+      {list.length ? (
+        list.map((x) => (
+          <InstallerRow
+            key={x.id}
+            installer={x}
+            navigation={navigation}
+          />
+        ))
+      ) : (
+        <EmptyState text="No installers found for these filters." />
+      )}
+    </Page>
+  );
+}
 export function InstallerDetails({ route, navigation }) { const { installerId } = route.params; const { installers, sites, visits } = useAdminData(); const installer = installers.find((x) => x.id === installerId), assigned = sites.filter((x) => x.installerId === installerId); const earnings = assigned.reduce((sum, x) => sum + getSiteTotal(x, visits).total, 0); return <Page><Text style={s.title}>{installer.name}</Text><Text style={s.subtitle}>{installer.phone}  •  {installer.email}</Text><View style={[s.card, s.row]}><Text style={s.meta}>{installer.city}</Text><StatusBadge status={installer.status} /></View><PrimaryButton title="Edit Current Charges" onPress={() => navigation.navigate('EditInstaller', { installerId })} /><SectionHeader title="Current Master Charges" />{Object.entries(installer.charges).filter(([k]) => k !== 'visit').map(([k, v]) => <View key={k} style={[s.card, s.row]}><Text style={s.cardTitle}>{k}</Text><Text style={s.meta}>{money(v)}</Text></View>)}<View style={[s.card, s.row]}><Text style={s.cardTitle}>Visiting Charge</Text><Text style={s.meta}>{money(installer.charges.visit)}</Text></View><Text style={s.meta}>These rates are used for future assignments only; assigned sites retain their historical snapshots.</Text><View style={styles.grid}>{[{ label: 'Assigned Sites', value: assigned.length }, { label: 'Total Visits', value: visits.filter((x) => assigned.some((a) => a.id === x.siteId)).length }, { label: 'Pending Approvals', value: visits.filter((x) => assigned.some((a) => a.id === x.siteId) && x.status === 'PENDING_APPROVAL').length }, { label: 'Total Earnings', value: money(earnings) }].map((x) => <StatCard key={x.label}{...x} />)}</View><SectionHeader title="Historical Assigned Jobs" />{assigned.map((x) => <SiteRow key={x.id} site={x} navigation={navigation} />)}</Page>; }
 const Field = ({ label, value, onChangeText, placeholder, keyboardType }) => <View style={styles.field}><Text style={styles.fieldLabel}>{label} *</Text><TextInput value={value} onChangeText={onChangeText} placeholder={placeholder || label} keyboardType={keyboardType} style={styles.input} /></View>;
 const SelectField = ({ label, value, placeholder, options, onSelect, disabled, error }) => { const [open, setOpen] = useState(false); return <View style={styles.field}><Text style={styles.fieldLabel}>{label} *</Text><Pressable disabled={disabled} onPress={() => setOpen(true)} style={[styles.select, disabled && styles.selectDisabled, error && styles.selectError]}><Text style={[styles.selectText, !value && styles.placeholder]}>{value || placeholder}</Text><Text style={styles.chevron}>⌄</Text></Pressable>{error ? <Text style={styles.error}>{error}</Text> : null}<Modal transparent visible={open} animationType="fade" onRequestClose={() => setOpen(false)}><Pressable style={styles.modalOverlay} onPress={() => setOpen(false)}><View style={styles.modalCard}>{options.map((option) => <Pressable key={option} onPress={() => { onSelect(option); setOpen(false); }} style={styles.option}><Text style={styles.optionText}>{option}</Text></Pressable>)}</View></Pressable></Modal></View>; };
-export function AddInstaller({ navigation }) { const { cities, doorTypes, addInstaller } = useAdminData(); const [form, setForm] = useState({ name: '', phone: '', email: '', city: cities[0], status: 'ACTIVE', visit: '500' }); const set = (key) => (value) => setForm((x) => ({ ...x, [key]: value })); const save = () => { if (!form.name || !form.phone || !form.email) return Alert.alert('Missing details', 'Please complete name, phone and email.'); addInstaller({ ...form, charges: { ...doorTypes.reduce((o, k) => ({ ...o, [k]: Number(form[k] || 1200) }), {}), visit: Number(form.visit) } }); Alert.alert('Installer saved', 'The installer has been added to the local demo data.'); navigation.goBack(); }; return <Page><Text style={s.title}>Add Installer</Text><Text style={s.subtitle}>Set master rates for future site assignments.</Text><Field label="Full Name" value={form.name} onChangeText={set('name')} /><Field label="Phone Number" value={form.phone} onChangeText={set('phone')} keyboardType="phone-pad" /><Field label="Email" value={form.email} onChangeText={set('email')} keyboardType="email-address" /><Text style={styles.fieldLabel}>City *</Text><FilterChips options={cities} selected={form.city} onSelect={(city) => setForm((x) => ({ ...x, city }))} /><Text style={styles.fieldLabel}>Status *</Text><FilterChips options={['ACTIVE', 'INACTIVE']} selected={form.status} onSelect={(status) => setForm((x) => ({ ...x, status }))} /><SectionHeader title="Current Master Charges" />{doorTypes.map((type) => <Field key={type} label={type} value={form[type] || '1200'} onChangeText={set(type)} keyboardType="numeric" />)}<Field label="Visiting Charge" value={form.visit} onChangeText={set('visit')} keyboardType="numeric" /><SecondaryButton title="Cancel" onPress={() => navigation.goBack()} /><PrimaryButton title="Save Installer" onPress={save} style={styles.actionButton} /></Page>; }
+export function AddInstaller({ navigation }) {
+  const { doorTypes } = useAdminData();
+  const { token } = useAuth();
+
+  const [cities, setCities] = useState([]);
+  const [form, setForm] = useState({
+    name: '',
+    phone: '',
+    email: '',
+    city: '',
+    status: 'ACTIVE',
+    visit: '500',
+  });
+  const [loadingCities, setLoadingCities] = useState(true);
+
+  useEffect(() => {
+    const loadCities = async () => {
+      try {
+        const response = await apiClient.get('/admin/cities', { token });
+        const cityList = response?.data || [];
+
+        setCities(cityList);
+
+        if (cityList.length) {
+          setForm((current) => ({
+            ...current,
+            city: cityList[0].name,
+          }));
+        }
+      } catch (err) {
+        Alert.alert(
+          'Unable to load cities',
+          err.message || 'Failed to load cities.'
+        );
+      } finally {
+        setLoadingCities(false);
+      }
+    };
+
+    loadCities();
+  }, [token]);
+
+  const [saving, setSaving] = useState(false);
+
+  const set = (key) => (value) =>
+    setForm((x) => ({ ...x, [key]: value }));
+
+  const save = async () => {
+    if (!form.name.trim() || !form.phone.trim() || !form.email.trim()) {
+      Alert.alert(
+        'Missing details',
+        'Please complete name, phone and email.'
+      );
+      return;
+    }
+
+    const selectedCity = cities.find(
+      (item) => item.name === form.city
+    );
+
+    if (!selectedCity?.id) {
+      Alert.alert('Missing details', 'Please select a valid city.');
+      return;
+    }
+
+    try {
+      setSaving(true);
+
+      const payload = {
+        name: form.name.trim(),
+        phone_number: form.phone.trim(),
+        email: form.email.trim(),
+        city_id: selectedCity.id,
+        is_active: form.status === 'ACTIVE',
+        visiting_charge: Number(form.visit || 0),
+        door_charges: doorTypes.reduce(
+          (charges, type) => ({
+            ...charges,
+            [type]: Number(form[type] || 1200),
+          }),
+          {}
+        ),
+      };
+
+      console.log('[8.4] Add Installer payload:', JSON.stringify(payload));
+
+      await apiClient.post('/admin/installers', payload, { token });
+
+      Alert.alert(
+        'Installer saved',
+        `${form.name.trim()} has been added successfully.`
+      );
+
+      navigation.goBack();
+    } catch (err) {
+      Alert.alert(
+        'Unable to save installer',
+        err.message || 'Failed to add installer.'
+      );
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <Page>
+      <Text style={s.title}>Add Installer</Text>
+
+      <Text style={s.subtitle}>
+        Set master rates for future site assignments.
+      </Text>
+
+      <Field
+        label="Full Name"
+        value={form.name}
+        onChangeText={set('name')}
+      />
+
+      <Field
+        label="Phone Number"
+        value={form.phone}
+        onChangeText={set('phone')}
+        keyboardType="phone-pad"
+      />
+
+      <Field
+        label="Email"
+        value={form.email}
+        onChangeText={set('email')}
+        keyboardType="email-address"
+      />
+
+      <Text style={styles.fieldLabel}>City *</Text>
+
+      <FilterChips
+        options={cities.map((city) => city.name)}
+        selected={form.city}
+        onSelect={(city) =>
+          setForm((x) => ({ ...x, city }))
+        }
+      />
+
+      <Text style={styles.fieldLabel}>Status *</Text>
+
+      <FilterChips
+        options={['ACTIVE', 'INACTIVE']}
+        selected={form.status}
+        onSelect={(status) =>
+          setForm((x) => ({ ...x, status }))
+        }
+      />
+
+      <SectionHeader title="Current Master Charges" />
+
+      {doorTypes.map((type) => (
+        <Field
+          key={type}
+          label={type}
+          value={form[type] || '1200'}
+          onChangeText={set(type)}
+          keyboardType="numeric"
+        />
+      ))}
+
+      <Field
+        label="Visiting Charge"
+        value={form.visit}
+        onChangeText={set('visit')}
+        keyboardType="numeric"
+      />
+
+      <SecondaryButton
+        title="Cancel"
+        onPress={() => navigation.goBack()}
+      />
+
+      <PrimaryButton
+        title={
+          saving
+            ? 'Saving...'
+            : loadingCities
+              ? 'Loading Cities...'
+              : 'Save Installer'
+        }
+        onPress={save}
+        disabled={saving || loadingCities}
+        style={styles.actionButton}
+      />
+    </Page>
+  );
+}
 export function EditInstaller({ route, navigation }) { const { installerId } = route.params; const { installers, doorTypes, updateInstaller } = useAdminData(); const installer = installers.find((item) => item.id === installerId); const [charges, setCharges] = useState({ ...installer.charges }); const save = () => { updateInstaller({ ...installer, charges: { ...doorTypes.reduce((all, type) => ({ ...all, [type]: Number(charges[type] || 0) }), {}), visit: Number(charges.visit || 0) } }); Alert.alert('Master charges updated', 'Existing sites keep their saved historical rates. Future assignments use these new rates.'); navigation.goBack(); }; return <Page><Text style={s.title}>Edit Installer Charges</Text><Text style={s.subtitle}>{installer.name} — these are current master charges only.</Text><SectionHeader title="Current Master Charges" />{doorTypes.map((type) => <Field key={type} label={type} value={String(charges[type] || '')} onChangeText={(value) => setCharges((item) => ({ ...item, [type]: value }))} keyboardType="numeric" />)}<Field label="Visiting Charge" value={String(charges.visit || '')} onChangeText={(value) => setCharges((item) => ({ ...item, visit: value }))} keyboardType="numeric" /><Text style={s.meta}>Assigned sites retain their own door and visiting-charge snapshots.</Text><SecondaryButton title="Cancel" onPress={() => navigation.goBack()} /><PrimaryButton title="Save Current Charges" onPress={save} style={styles.actionButton} /></Page>; }
 export function EditInstallerWithCity({ route, navigation }) { const { installerId } = route.params; const { installers, cities, doorTypes, updateInstaller } = useAdminData(); const installer = installers.find((item) => item.id === installerId); const [city, setCity] = useState(installer.city); const [charges, setCharges] = useState({ ...installer.charges }); const save = () => { updateInstaller({ ...installer, city, charges: { ...doorTypes.reduce((all, type) => ({ ...all, [type]: Number(charges[type] || 0) }), {}), visit: Number(charges.visit || 0) } }); Alert.alert('Installer updated', 'City and current master charges have been saved. Existing site snapshots are unchanged.'); navigation.goBack(); }; return <Page><Text style={s.title}>Edit Installer</Text><Text style={s.subtitle}>{installer.name}</Text><Text style={styles.fieldLabel}>City *</Text><FilterChips options={cities} selected={city} onSelect={setCity} /><SectionHeader title="Current Master Charges" />{doorTypes.map((type) => <Field key={type} label={type} value={String(charges[type] || '')} onChangeText={(value) => setCharges((item) => ({ ...item, [type]: value }))} keyboardType="numeric" />)}<Field label="Visiting Charge" value={String(charges.visit || '')} onChangeText={(value) => setCharges((item) => ({ ...item, visit: value }))} keyboardType="numeric" /><Text style={s.meta}>Existing site charges remain historical snapshots.</Text><SecondaryButton title="Cancel" onPress={() => navigation.goBack()} /><PrimaryButton title="Save Installer" onPress={save} style={styles.actionButton} /></Page>; }
 export function SitesScreen({ navigation }) {
