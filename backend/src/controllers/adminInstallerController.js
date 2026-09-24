@@ -1,4 +1,5 @@
 const bcrypt = require('bcrypt');
+const crypto = require('crypto');
 const pool = require('../config/database');
 
 const getInstallers = async (req, res) => {
@@ -111,16 +112,16 @@ const createInstaller = async (req, res) => {
       name,
       email,
       phoneNumber,
-      password,
       cityId,
       visitingCharge,
       doorCharges,
+      isActive = true,
     } = req.body;
 
-    if (!name || !phoneNumber || !password || !cityId) {
+    if (!name || !phoneNumber || !cityId) {
       return res.status(400).json({
         success: false,
-        message: 'Name, phone number, password and city are required',
+        message: 'Name, phone number and city are required',
       });
     }
 
@@ -152,21 +153,39 @@ const createInstaller = async (req, res) => {
       });
     }
 
-    const passwordHash = await bcrypt.hash(password, 10);
+    const activationToken = crypto.randomBytes(32).toString('hex');
+      const activationTokenHash = crypto
+        .createHash('sha256')
+        .update(activationToken)
+        .digest('hex');
+
+      const activationExpiresAt = new Date(
+        Date.now() + 24 * 60 * 60 * 1000
+    ); // 24 hours from now
 
     const userResult = await client.query(
       `
       INSERT INTO users
-        (name, email, phone_number, password_hash, role)
+        (
+          name,
+          email,
+          phone_number,
+          password_hash,
+          role,
+          is_active,
+          activation_token_hash,
+          activation_expires_at
+        )
       VALUES
-        ($1, $2, $3, $4, 'INSTALLER')
-      RETURNING id, name, email, phone_number, role
+        ($1, $2, $3, NULL, 'INSTALLER', FALSE, $4, $5)
+      RETURNING id, name, email, phone_number, role, is_active
       `,
       [
-        name.trim(),
-        email?.trim() || null,
-        phoneNumber.trim(),
-        passwordHash,
+        name,
+        email || null,
+        phoneNumber,
+        activationTokenHash,
+        activationExpiresAt,
       ]
     );
 
@@ -175,15 +194,16 @@ const createInstaller = async (req, res) => {
     const installerResult = await client.query(
       `
       INSERT INTO installers
-        (user_id, city_id, visiting_charge)
+        (user_id, city_id, visiting_charge, is_active)
       VALUES
-        ($1, $2, $3)
+        ($1, $2, $3, $4)
       RETURNING id, user_id, city_id, visiting_charge, is_active
       `,
       [
         user.id,
         cityId,
         Number(visitingCharge || 0),
+        Boolean(isActive),
       ]
     );
 
@@ -253,6 +273,9 @@ const createInstaller = async (req, res) => {
         cityId: installer.city_id,
         visitingCharge: installer.visiting_charge,
         doorCharges,
+        ...(process.env.NODE_ENV !== 'production'
+          ? { activationToken }
+          : {}),
       },
     });
   } catch (error) {

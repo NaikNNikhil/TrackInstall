@@ -1,6 +1,10 @@
 const express = require('express');
 
-const { login } = require('../controllers/authController');
+const {
+  login,
+  activateAccount,
+} = require('../controllers/authController');
+
 const {
   requireAuth,
   requireAdmin,
@@ -10,6 +14,7 @@ const {
 const router = express.Router();
 
 router.post('/login', login);
+router.post('/activate', activateAccount);
 
 router.get('/me', requireAuth, (req, res) => {
   return res.status(200).json({

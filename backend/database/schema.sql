@@ -53,17 +53,24 @@ CREATE TABLE users (
     email VARCHAR(255) UNIQUE,
 
     phone_number VARCHAR(20) NOT NULL UNIQUE,
-
-    password_hash TEXT NOT NULL,
-
+    
+    password_hash TEXT,
+    
     role user_role NOT NULL,
-
+    
     is_active BOOLEAN NOT NULL DEFAULT TRUE,
+    
+    activation_token_hash TEXT,
+    
+    activation_expires_at TIMESTAMPTZ,
 
     created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
     updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
+
+CREATE INDEX IF NOT EXISTS idx_users_activation_token_hash
+    ON users(activation_token_hash);
 
 -- ============================================================
 -- CITIES
