@@ -148,8 +148,7 @@ const activateAccount = async (req, res) => {
 
     const passwordHash = await bcrypt.hash(password, 10);
 
-    await pool.query(
-      `
+    await pool.query(`
       UPDATE users
       SET
         password_hash = $1,
@@ -158,9 +157,15 @@ const activateAccount = async (req, res) => {
         activation_expires_at = NULL,
         updated_at = CURRENT_TIMESTAMP
       WHERE id = $2
-      `,
-      [passwordHash, user.id]
-    );
+    `, [passwordHash, user.id]);
+
+    await pool.query(`
+      UPDATE installers
+      SET
+        is_active = TRUE,
+        updated_at = CURRENT_TIMESTAMP
+      WHERE user_id = $1
+    `, [user.id]);
 
     return res.status(200).json({
       success: true,

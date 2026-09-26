@@ -12,10 +12,89 @@ import { colors, spacing, typography } from '../../theme';
 import { useAuth } from '../../auth';
 import { apiClient } from '../../api';
 const Page = ({ children }) => <ScreenContainer><ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={s.page}>{children}</ScrollView></ScreenContainer>;
+
 const InstallerRow = ({ installer, navigation }) => {
-  const { sites } = useAdminData(); const assigned = sites.filter((x) => x.installerId === installer.id); return <Pressable style={s.card} onPress={() => navigation.navigate('InstallerDetails', { installerId: installer.id })}><View style={s.row}><Text style={s.cardTitle}>{installer.name}</Text><StatusBadge status={installer.status} /></View><Text style={s.meta}>{installer.phone}  •  {installer.city}</Text><Text style={s.meta}>
-    Assigned: {assigned.filter((x) => x.status === 'ASSIGNED').length} • Completed: {assigned.filter((x) => x.status === 'COMPLETED').length}
-  </Text></Pressable>;
+  const { sites } = useAdminData();
+  const { token } = useAuth();
+
+  const assigned = sites.filter(
+    (x) => x.installerId === installer.id
+  );
+
+  const handleResendActivation = async () => {
+    try {
+      const response = await apiClient.post(
+        `/admin/installers/${installer.id}/resend-activation`,
+        {},
+        { token }
+      );
+
+      const activationToken = response?.data?.activationToken;
+
+      if (activationToken) {
+        Alert.alert(
+          'Activation Code',
+          `New activation code for ${installer.name}:\n\n${activationToken}\n\nThis code expires in 24 hours.`
+        );
+      } else {
+        Alert.alert(
+          'Activation Code',
+          'A new activation code has been generated successfully.'
+        );
+      }
+    } catch (err) {
+      Alert.alert(
+        'Unable to Resend',
+        err.message || 'Failed to generate a new activation code.'
+      );
+    }
+  };
+
+  return (
+    <View style={s.card}>
+      <Pressable
+        onPress={() =>
+          navigation.navigate('InstallerDetails', {
+            installerId: installer.id,
+          })
+        }
+      >
+        <View style={s.row}>
+          <Text style={s.cardTitle}>{installer.name}</Text>
+
+          <StatusBadge
+            status={installer.is_active ? 'ACTIVE' : 'INACTIVE'}
+          />
+        </View>
+
+        <Text style={s.meta}>
+          {installer.phone_number} • {installer.city_name}
+        </Text>
+
+        <Text style={s.meta}>
+          Assigned:{' '}
+          {assigned.filter(
+            (x) => x.status === 'ASSIGNED'
+          ).length}{' '}
+          • Completed:{' '}
+          {assigned.filter(
+            (x) => x.status === 'COMPLETED'
+          ).length}
+        </Text>
+      </Pressable>
+
+      {!installer.is_active && (
+        <Pressable
+          onPress={handleResendActivation}
+          style={s.activationButton}
+        >
+          <Text style={s.activationButtonText}>
+            Resend Activation
+          </Text>
+        </Pressable>
+      )}
+    </View>
+  );
 };
 
 const SiteRow = ({ site, navigation }) => { const { installers, visits } = useAdminData(); const installer = installers.find((x) => x.id === site.installerId); const done = visits.filter((x) => x.siteId === site.id && x.status === 'COMPLETED').length; return <Pressable style={s.card} onPress={() => navigation.navigate('SiteDetails', { siteId: site.id })}><View style={s.row}><Text style={s.cardTitle}>{site.name}</Text><StatusBadge status={site.status} /></View><Text style={s.meta}>{site.orderId}  •  {site.city}  •  {installer?.name}</Text><Text style={s.meta}>{site.doors.map((x) => `${x.type} × ${x.quantity}`).join(', ')}</Text><Text style={s.meta}>Visits: {done}/{site.expectedVisits}  •  Payment: {site.paymentStatus.replace('_', ' ')}</Text></Pressable>; };
@@ -189,6 +268,7 @@ export function AddCity({ navigation }) {
   );
 }
 export function CityDetails({ route, navigation }) { const { city } = route.params; const { installers, sites, visits } = useAdminData(); const cityInstallers = installers.filter((x) => x.city === city), citySites = sites.filter((x) => x.city === city); return <Page><Text style={s.title}>{city}</Text><Text style={s.subtitle}>City operations overview</Text><View style={styles.grid}>{[{ label: 'Installers', value: cityInstallers.length }, { label: 'Assigned Sites', value: citySites.filter((x) => x.status === 'ASSIGNED').length }, { label: 'Completed', value: citySites.filter((x) => x.status === 'COMPLETED').length }, { label: 'Pending Visits', value: visits.filter((x) => citySites.some((a) => a.id === x.siteId) && x.status === 'PENDING_APPROVAL').length }].map((x) => <StatCard key={x.label}{...x} />)}</View><SectionHeader title="Installers in this city" />{cityInstallers.map((x) => <InstallerRow key={x.id} installer={x} navigation={navigation} />)}<SectionHeader title="Sites in this city" />{citySites.map((x) => <SiteRow key={x.id} site={x} navigation={navigation} />)}</Page>; }
+
 export function InstallersScreen({ navigation }) {
   const { cities } = useAdminData();
   const { token } = useAuth();
@@ -297,11 +377,21 @@ export function InstallersScreen({ navigation }) {
     </Page>
   );
 }
+
 export function InstallerDetails({ route, navigation }) { const { installerId } = route.params; const { installers, sites, visits } = useAdminData(); const installer = installers.find((x) => x.id === installerId), assigned = sites.filter((x) => x.installerId === installerId); const earnings = assigned.reduce((sum, x) => sum + getSiteTotal(x, visits).total, 0); return <Page><Text style={s.title}>{installer.name}</Text><Text style={s.subtitle}>{installer.phone}  •  {installer.email}</Text><View style={[s.card, s.row]}><Text style={s.meta}>{installer.city}</Text><StatusBadge status={installer.status} /></View><PrimaryButton title="Edit Current Charges" onPress={() => navigation.navigate('EditInstaller', { installerId })} /><SectionHeader title="Current Master Charges" />{Object.entries(installer.charges).filter(([k]) => k !== 'visit').map(([k, v]) => <View key={k} style={[s.card, s.row]}><Text style={s.cardTitle}>{k}</Text><Text style={s.meta}>{money(v)}</Text></View>)}<View style={[s.card, s.row]}><Text style={s.cardTitle}>Visiting Charge</Text><Text style={s.meta}>{money(installer.charges.visit)}</Text></View><Text style={s.meta}>These rates are used for future assignments only; assigned sites retain their historical snapshots.</Text><View style={styles.grid}>{[{ label: 'Assigned Sites', value: assigned.length }, { label: 'Total Visits', value: visits.filter((x) => assigned.some((a) => a.id === x.siteId)).length }, { label: 'Pending Approvals', value: visits.filter((x) => assigned.some((a) => a.id === x.siteId) && x.status === 'PENDING_APPROVAL').length }, { label: 'Total Earnings', value: money(earnings) }].map((x) => <StatCard key={x.label}{...x} />)}</View><SectionHeader title="Historical Assigned Jobs" />{assigned.map((x) => <SiteRow key={x.id} site={x} navigation={navigation} />)}</Page>; }
 const Field = ({ label, value, onChangeText, placeholder, keyboardType }) => <View style={styles.field}><Text style={styles.fieldLabel}>{label} *</Text><TextInput value={value} onChangeText={onChangeText} placeholder={placeholder || label} keyboardType={keyboardType} style={styles.input} /></View>;
 const SelectField = ({ label, value, placeholder, options, onSelect, disabled, error }) => { const [open, setOpen] = useState(false); return <View style={styles.field}><Text style={styles.fieldLabel}>{label} *</Text><Pressable disabled={disabled} onPress={() => setOpen(true)} style={[styles.select, disabled && styles.selectDisabled, error && styles.selectError]}><Text style={[styles.selectText, !value && styles.placeholder]}>{value || placeholder}</Text><Text style={styles.chevron}>⌄</Text></Pressable>{error ? <Text style={styles.error}>{error}</Text> : null}<Modal transparent visible={open} animationType="fade" onRequestClose={() => setOpen(false)}><Pressable style={styles.modalOverlay} onPress={() => setOpen(false)}><View style={styles.modalCard}>{options.map((option) => <Pressable key={option} onPress={() => { onSelect(option); setOpen(false); }} style={styles.option}><Text style={styles.optionText}>{option}</Text></Pressable>)}</View></Pressable></Modal></View>; };
 export function AddInstaller({ navigation }) {
   const { doorTypes } = useAdminData();
+
+  const doorTypeIds = {
+    'Single Leaf Dead Lock': '724d8caf-483f-47f6-9460-d86a9b90b7b5',
+    'Single Leaf Panic Bar': '9a0e492e-325b-4372-80a7-2c1b07dc042d',
+    'Double Leaf Dead Lock': 'bfdbd99f-feef-491d-9c9c-757761ab448c',
+    'Double Leaf Panic Bar': 'e6a09665-d325-4f81-958a-fe423263d081',
+    'Glass Door': 'e31726c7-c7ec-4036-878c-1db96a1825a2',
+  };
+
   const { token } = useAuth();
 
   const [cities, setCities] = useState([]);
@@ -310,7 +400,6 @@ export function AddInstaller({ navigation }) {
     phone: '',
     email: '',
     city: '',
-    status: 'ACTIVE',
     visit: '500',
   });
   const [loadingCities, setLoadingCities] = useState(true);
@@ -368,32 +457,59 @@ export function AddInstaller({ navigation }) {
     try {
       setSaving(true);
 
+      const doorCharges = doorTypes.map((type) => {
+        const doorTypeId = doorTypeIds[type];
+
+        if (!doorTypeId) {
+          throw new Error(`Missing door type ID for: ${type}`);
+        }
+
+        return {
+          doorTypeId,
+          installationCharge: Number(form[type] || 1200),
+        };
+      });
+
       const payload = {
         name: form.name.trim(),
-        phone_number: form.phone.trim(),
+        phoneNumber: form.phone.trim(),
         email: form.email.trim(),
-        city_id: selectedCity.id,
-        is_active: form.status === 'ACTIVE',
-        visiting_charge: Number(form.visit || 0),
-        door_charges: doorTypes.reduce(
-          (charges, type) => ({
-            ...charges,
-            [type]: Number(form[type] || 1200),
-          }),
-          {}
-        ),
+        cityId: selectedCity.id,
+        visitingCharge: Number(form.visit || 0),
+        doorCharges,
       };
 
-      console.log('[8.4] Add Installer payload:', JSON.stringify(payload));
-
-      await apiClient.post('/admin/installers', payload, { token });
-
-      Alert.alert(
-        'Installer saved',
-        `${form.name.trim()} has been added successfully.`
+      const response = await apiClient.post(
+        '/admin/installers',
+        payload,
+        { token }
       );
 
-      navigation.goBack();
+      const activationToken = response?.data?.activationToken;
+
+      if (activationToken) {
+        Alert.alert(
+          'Installer created',
+          `${form.name.trim()} has been created.\n\nActivation Token:\n${activationToken}\n\nShare this token with the installer. It expires in 24 hours.`,
+          [
+            {
+              text: 'OK',
+              onPress: () => navigation.goBack(),
+            },
+          ]
+        );
+      } else {
+        Alert.alert(
+          'Installer created',
+          `${form.name.trim()} has been created successfully.`,
+          [
+            {
+              text: 'OK',
+              onPress: () => navigation.goBack(),
+            },
+          ]
+        );
+      }
     } catch (err) {
       Alert.alert(
         'Unable to save installer',
@@ -439,16 +555,6 @@ export function AddInstaller({ navigation }) {
         selected={form.city}
         onSelect={(city) =>
           setForm((x) => ({ ...x, city }))
-        }
-      />
-
-      <Text style={styles.fieldLabel}>Status *</Text>
-
-      <FilterChips
-        options={['ACTIVE', 'INACTIVE']}
-        selected={form.status}
-        onSelect={(status) =>
-          setForm((x) => ({ ...x, status }))
         }
       />
 

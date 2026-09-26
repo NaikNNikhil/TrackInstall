@@ -115,7 +115,6 @@ const createInstaller = async (req, res) => {
       cityId,
       visitingCharge,
       doorCharges,
-      isActive = true,
     } = req.body;
 
     if (!name || !phoneNumber || !cityId) {
@@ -153,11 +152,16 @@ const createInstaller = async (req, res) => {
       });
     }
 
-    const activationToken = crypto.randomBytes(32).toString('hex');
-      const activationTokenHash = crypto
-        .createHash('sha256')
-        .update(activationToken)
-        .digest('hex');
+    const activationToken = crypto
+      .randomBytes(6)
+      .toString('base64url')
+      .slice(0, 8)
+      .toUpperCase();
+
+    const activationTokenHash = crypto
+      .createHash('sha256')
+      .update(activationToken)
+      .digest('hex');
 
       const activationExpiresAt = new Date(
         Date.now() + 24 * 60 * 60 * 1000
@@ -191,21 +195,18 @@ const createInstaller = async (req, res) => {
 
     const user = userResult.rows[0];
 
-    const installerResult = await client.query(
-      `
+    const installerResult = await client.query(`
       INSERT INTO installers
         (user_id, city_id, visiting_charge, is_active)
       VALUES
         ($1, $2, $3, $4)
       RETURNING id, user_id, city_id, visiting_charge, is_active
-      `,
-      [
-        user.id,
-        cityId,
-        Number(visitingCharge || 0),
-        Boolean(isActive),
-      ]
-    );
+    `, [
+      user.id,
+      cityId,
+      Number(visitingCharge || 0),
+      false,
+    ]);
 
     const installer = installerResult.rows[0];
 
@@ -538,9 +539,105 @@ const updateInstaller = async (req, res) => {
   }
 };
 
+const resendActivation = async (req, res) => {
+  const client = await pool.connect();
+
+  try {
+    const { id } = req.params;
+
+    await client.query('BEGIN');
+
+    const result = await client.query(`
+      SELECT
+        i.id,
+        u.id AS user_id,
+        u.name,
+        u.is_active
+      FROM installers i
+      JOIN users u ON u.id = i.user_id
+      WHERE i.id = $1
+      LIMIT 1
+    `, [id]);
+
+    if (result.rows.length === 0) {
+      await client.query('ROLLBACK');
+
+      return res.status(404).json({
+        success: false,
+        message: 'Installer not found',
+      });
+    }
+
+    const installer = result.rows[0];
+
+    if (installer.is_active) {
+      await client.query('ROLLBACK');
+
+      return res.status(400).json({
+        success: false,
+        message: 'Installer account is already active',
+      });
+    }
+
+    const activationToken = crypto
+      .randomBytes(6)
+      .toString('base64url')
+      .slice(0, 8)
+      .toUpperCase();
+
+    const activationTokenHash = crypto
+      .createHash('sha256')
+      .update(activationToken)
+      .digest('hex');
+
+    const activationExpiresAt = new Date(
+      Date.now() + 24 * 60 * 60 * 1000
+    );
+
+    await client.query(`
+      UPDATE users
+      SET
+        activation_token_hash = $1,
+        activation_expires_at = $2,
+        updated_at = CURRENT_TIMESTAMP
+      WHERE id = $3
+    `, [
+      activationTokenHash,
+      activationExpiresAt,
+      installer.user_id,
+    ]);
+
+    await client.query('COMMIT');
+
+    return res.status(200).json({
+      success: true,
+      message: 'Activation code regenerated successfully',
+      data: {
+        installerId: installer.id,
+        name: installer.name,
+        ...(process.env.NODE_ENV !== 'production'
+          ? { activationToken }
+          : {}),
+      },
+    });
+  } catch (error) {
+    await client.query('ROLLBACK');
+
+    console.error('Resend activation error:', error);
+
+    return res.status(500).json({
+      success: false,
+      message: 'Failed to regenerate activation code',
+    });
+  } finally {
+    client.release();
+  }
+};
+
 module.exports = {
   getInstallers,
   getInstallerById,
   createInstaller,
   updateInstaller,
+  resendActivation,
 };
