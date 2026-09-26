@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Alert, Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Alert, Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View, Linking } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
 import AppHeader from '../../components/AppHeader';
 import PrimaryButton from '../../components/PrimaryButton';
@@ -10,8 +10,20 @@ import { EmptyState, FilterChips, SearchBar, SectionHeader, StatusBadge, adminSt
 import { getSiteTotal, money, useAdminData } from '../../data/AdminDataContext';
 import { colors, spacing, typography } from '../../theme';
 import { useAuth } from '../../auth';
-import { apiClient } from '../../api';
+import { API_BASE_URL, apiClient } from '../../api';
+import { fetch as expoFetch } from 'expo/fetch';
+import { File } from 'expo-file-system';
 const Page = ({ children }) => <ScreenContainer><ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={s.page}>{children}</ScrollView></ScreenContainer>;
+
+const DOOR_TYPE_IDS = {
+    'Single Leaf Dead Lock': '724d8caf-483f-47f6-9460-d86a9b90b7b5',
+    'Single Leaf Panic Bar': '9a0e492e-325b-4372-80a7-2c1b07dc042d',
+    'Double Leaf Dead Lock': 'bfdbd99f-feef-491d-9c9c-757761ab448c',
+    'Double Leaf Panic Bar': 'e6a09665-d325-4f81-958a-fe423263d081',
+    'Glass Door': 'e31726c7-c7ec-4036-878c-1db96a1825a2',
+  };
+
+const DOOR_TYPES = Object.keys(DOOR_TYPE_IDS);
 
 const InstallerRow = ({ installer, navigation }) => {
   const { sites } = useAdminData();
@@ -97,7 +109,39 @@ const InstallerRow = ({ installer, navigation }) => {
   );
 };
 
-const SiteRow = ({ site, navigation }) => { const { installers, visits } = useAdminData(); const installer = installers.find((x) => x.id === site.installerId); const done = visits.filter((x) => x.siteId === site.id && x.status === 'COMPLETED').length; return <Pressable style={s.card} onPress={() => navigation.navigate('SiteDetails', { siteId: site.id })}><View style={s.row}><Text style={s.cardTitle}>{site.name}</Text><StatusBadge status={site.status} /></View><Text style={s.meta}>{site.orderId}  •  {site.city}  •  {installer?.name}</Text><Text style={s.meta}>{site.doors.map((x) => `${x.type} × ${x.quantity}`).join(', ')}</Text><Text style={s.meta}>Visits: {done}/{site.expectedVisits}  •  Payment: {site.paymentStatus.replace('_', ' ')}</Text></Pressable>; };
+const SiteRow = ({ site, navigation }) => {
+  return (
+    <Pressable
+      style={s.card}
+      onPress={() =>
+        navigation.navigate('SiteDetails', {
+          siteId: site.id,
+        })
+      }
+    >
+      <View style={s.row}>
+        <Text style={s.cardTitle}>{site.site_name}</Text>
+        <StatusBadge status={site.status} />
+      </View>
+
+      <Text style={s.meta}>
+        {site.order_id} • {site.city_name} • {site.installer_name}
+      </Text>
+
+      <Text style={s.meta}>
+        Expected Visits: {site.expected_visits}
+      </Text>
+
+      <Text style={s.meta}>
+        Payment:{' '}
+        {site.payment_status
+          ? site.payment_status.replace(/_/g, ' ')
+          : 'NOT_READY'}
+      </Text>
+    </Pressable>
+  );
+};
+
 export function Dashboard({ navigation }) { const { installers, sites, visits, cities } = useAdminData(); const pending = visits.filter((x) => x.status === 'PENDING_APPROVAL'); const cards = [{ label: 'Total Cities', value: cities.length }, { label: 'Total Installers', value: installers.length }, { label: 'Assigned Sites', value: sites.filter((x) => x.status === 'ASSIGNED').length }, { label: 'Completed Sites', value: sites.filter((x) => x.status === 'COMPLETED').length }, { label: 'Pending Approvals', value: pending.length }, { label: 'Pending Payments', value: money(sites.filter((x) => x.paymentStatus === 'PAYMENT_PENDING').reduce((sum, x) => sum + getSiteTotal(x, visits).total, 0)) }]; return <Page><AppHeader greeting="Welcome, Admin" /><Text style={s.title}>Admin Dashboard</Text><Text style={s.subtitle}>Stay on top of installation operations.</Text><View style={styles.grid}>{cards.map((x) => <StatCard key={x.label} {...x} />)}</View><SectionHeader title="Pending Approvals" action="View All" onPress={() => navigation.navigate('Approvals')} />{pending.slice(0, 2).map((v) => { const site = sites.find((x) => x.id === v.siteId); const installer = installers.find((x) => x.id === site.installerId); return <Pressable key={v.id} onPress={() => navigation.navigate('VisitDetails', { visitId: v.id })} style={s.card}><View style={s.row}><Text style={s.cardTitle}>{site.name}</Text><StatusBadge status={v.status} /></View><Text style={s.meta}>{installer.name}  •  Visit {v.number}  •  {v.reason}</Text></Pressable>; })}<SectionHeader title="Recent Sites" action="View Sites" onPress={() => navigation.navigate('Sites')} />{sites.slice(0, 3).map((x) => <SiteRow key={x.id} site={x} navigation={navigation} />)}</Page>; }
 export function MoreScreen({ navigation }) { const { logout: authLogout } = useAuth(); const logout = async () => { if (authLogout) await authLogout(); navigation.getParent('RootStack')?.reset({ index: 0, routes: [{ name: 'AuthFlow' }] }); }; return <Page><AppHeader greeting="Admin tools" /><Text style={s.title}>More</Text>{[['Sites', 'Manage assigned site jobs'], ['Installers', 'Manage your installation team'], ['Visits', 'Review all site visits'], ['Approvals', 'Approve extra visits'], ['Payments', 'Manage site payments']].map(([name, desc]) => <Pressable key={name} style={s.card} onPress={() => navigation.navigate(name)}><Text style={s.cardTitle}>{name}</Text><Text style={s.meta}>{desc}</Text></Pressable>)}<Pressable style={s.card} onPress={logout}><Text style={[s.cardTitle, styles.logout]}>Logout</Text><Text style={s.meta}>Return to Login</Text></Pressable></Page>; }
 export function CitiesScreen({ navigation }) {
@@ -378,19 +422,194 @@ export function InstallersScreen({ navigation }) {
   );
 }
 
-export function InstallerDetails({ route, navigation }) { const { installerId } = route.params; const { installers, sites, visits } = useAdminData(); const installer = installers.find((x) => x.id === installerId), assigned = sites.filter((x) => x.installerId === installerId); const earnings = assigned.reduce((sum, x) => sum + getSiteTotal(x, visits).total, 0); return <Page><Text style={s.title}>{installer.name}</Text><Text style={s.subtitle}>{installer.phone}  •  {installer.email}</Text><View style={[s.card, s.row]}><Text style={s.meta}>{installer.city}</Text><StatusBadge status={installer.status} /></View><PrimaryButton title="Edit Current Charges" onPress={() => navigation.navigate('EditInstaller', { installerId })} /><SectionHeader title="Current Master Charges" />{Object.entries(installer.charges).filter(([k]) => k !== 'visit').map(([k, v]) => <View key={k} style={[s.card, s.row]}><Text style={s.cardTitle}>{k}</Text><Text style={s.meta}>{money(v)}</Text></View>)}<View style={[s.card, s.row]}><Text style={s.cardTitle}>Visiting Charge</Text><Text style={s.meta}>{money(installer.charges.visit)}</Text></View><Text style={s.meta}>These rates are used for future assignments only; assigned sites retain their historical snapshots.</Text><View style={styles.grid}>{[{ label: 'Assigned Sites', value: assigned.length }, { label: 'Total Visits', value: visits.filter((x) => assigned.some((a) => a.id === x.siteId)).length }, { label: 'Pending Approvals', value: visits.filter((x) => assigned.some((a) => a.id === x.siteId) && x.status === 'PENDING_APPROVAL').length }, { label: 'Total Earnings', value: money(earnings) }].map((x) => <StatCard key={x.label}{...x} />)}</View><SectionHeader title="Historical Assigned Jobs" />{assigned.map((x) => <SiteRow key={x.id} site={x} navigation={navigation} />)}</Page>; }
+export function InstallerDetails({
+  route,
+  navigation,
+}) {
+  const { installerId } = route.params;
+  const { token } = useAuth();
+
+  const [installer, setInstaller] =
+    useState(null);
+
+  const [loading, setLoading] =
+    useState(true);
+
+  const [error, setError] =
+    useState('');
+
+  const loadInstaller = async () => {
+    try {
+      setLoading(true);
+      setError('');
+
+      const response =
+        await apiClient.get(
+          `/admin/installers/${installerId}`,
+          { token }
+        );
+
+      setInstaller(
+        response?.data || null
+      );
+    } catch (err) {
+      setError(
+        err.message ||
+          'Failed to load installer details.'
+      );
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    loadInstaller();
+  }, [token, installerId]);
+
+  if (loading) {
+    return (
+      <Page>
+        <Text>
+          Loading installer details...
+        </Text>
+      </Page>
+    );
+  }
+
+  if (error || !installer) {
+    return (
+      <Page>
+        <Text style={s.title}>
+          Installer Details
+        </Text>
+
+        <Text style={styles.error}>
+          {error ||
+            'Installer not found.'}
+        </Text>
+
+        <Pressable
+          onPress={loadInstaller}
+        >
+          <Text style={styles.add}>
+            Retry
+          </Text>
+        </Pressable>
+      </Page>
+    );
+  }
+
+  return (
+    <Page>
+      <Text style={s.title}>
+        {installer.name}
+      </Text>
+
+      <Text style={s.subtitle}>
+        {installer.phone_number}
+        {installer.email
+          ? ` • ${installer.email}`
+          : ''}
+      </Text>
+
+      <View
+        style={[
+          s.card,
+          s.row,
+        ]}
+      >
+        <Text style={s.meta}>
+          {installer.city_name}
+        </Text>
+
+        <StatusBadge
+          status={
+            installer.is_active
+              ? 'ACTIVE'
+              : 'INACTIVE'
+          }
+        />
+      </View>
+
+      <SectionHeader
+        title="Current Master Charges"
+      />
+
+      {(installer.doorCharges || []).map(
+        (item) => (
+          <View
+            key={item.door_type_id}
+            style={[
+              s.card,
+              s.row,
+            ]}
+          >
+            <Text
+              style={s.cardTitle}
+            >
+              {item.door_type}
+            </Text>
+
+            <Text
+              style={s.meta}
+            >
+              {money(
+                item.installation_charge
+              )}
+            </Text>
+          </View>
+        )
+      )}
+
+      <View
+        style={[
+          s.card,
+          s.row,
+        ]}
+      >
+        <Text style={s.cardTitle}>
+          Visiting Charge
+        </Text>
+
+        <Text style={s.meta}>
+          {money(
+            installer.visiting_charge
+          )}
+        </Text>
+      </View>
+
+      <Text style={s.meta}>
+        These rates are used for future
+        assignments. Existing site
+        assignments keep their saved
+        charge snapshots unless the
+        installer is changed during
+        site editing.
+      </Text>
+
+      <PrimaryButton
+        title="Edit Current Charges"
+        onPress={() =>
+          navigation.navigate(
+            'EditInstaller',
+            {
+              installerId,
+            }
+          )
+        }
+        style={
+          styles.actionButton
+        }
+      />
+    </Page>
+  );
+}
+
 const Field = ({ label, value, onChangeText, placeholder, keyboardType }) => <View style={styles.field}><Text style={styles.fieldLabel}>{label} *</Text><TextInput value={value} onChangeText={onChangeText} placeholder={placeholder || label} keyboardType={keyboardType} style={styles.input} /></View>;
 const SelectField = ({ label, value, placeholder, options, onSelect, disabled, error }) => { const [open, setOpen] = useState(false); return <View style={styles.field}><Text style={styles.fieldLabel}>{label} *</Text><Pressable disabled={disabled} onPress={() => setOpen(true)} style={[styles.select, disabled && styles.selectDisabled, error && styles.selectError]}><Text style={[styles.selectText, !value && styles.placeholder]}>{value || placeholder}</Text><Text style={styles.chevron}>⌄</Text></Pressable>{error ? <Text style={styles.error}>{error}</Text> : null}<Modal transparent visible={open} animationType="fade" onRequestClose={() => setOpen(false)}><Pressable style={styles.modalOverlay} onPress={() => setOpen(false)}><View style={styles.modalCard}>{options.map((option) => <Pressable key={option} onPress={() => { onSelect(option); setOpen(false); }} style={styles.option}><Text style={styles.optionText}>{option}</Text></Pressable>)}</View></Pressable></Modal></View>; };
+
 export function AddInstaller({ navigation }) {
   const { doorTypes } = useAdminData();
-
-  const doorTypeIds = {
-    'Single Leaf Dead Lock': '724d8caf-483f-47f6-9460-d86a9b90b7b5',
-    'Single Leaf Panic Bar': '9a0e492e-325b-4372-80a7-2c1b07dc042d',
-    'Double Leaf Dead Lock': 'bfdbd99f-feef-491d-9c9c-757761ab448c',
-    'Double Leaf Panic Bar': 'e6a09665-d325-4f81-958a-fe423263d081',
-    'Glass Door': 'e31726c7-c7ec-4036-878c-1db96a1825a2',
-  };
 
   const { token } = useAuth();
 
@@ -599,103 +818,329 @@ export function AddInstaller({ navigation }) {
 }
 export function EditInstaller({ route, navigation }) { const { installerId } = route.params; const { installers, doorTypes, updateInstaller } = useAdminData(); const installer = installers.find((item) => item.id === installerId); const [charges, setCharges] = useState({ ...installer.charges }); const save = () => { updateInstaller({ ...installer, charges: { ...doorTypes.reduce((all, type) => ({ ...all, [type]: Number(charges[type] || 0) }), {}), visit: Number(charges.visit || 0) } }); Alert.alert('Master charges updated', 'Existing sites keep their saved historical rates. Future assignments use these new rates.'); navigation.goBack(); }; return <Page><Text style={s.title}>Edit Installer Charges</Text><Text style={s.subtitle}>{installer.name} — these are current master charges only.</Text><SectionHeader title="Current Master Charges" />{doorTypes.map((type) => <Field key={type} label={type} value={String(charges[type] || '')} onChangeText={(value) => setCharges((item) => ({ ...item, [type]: value }))} keyboardType="numeric" />)}<Field label="Visiting Charge" value={String(charges.visit || '')} onChangeText={(value) => setCharges((item) => ({ ...item, visit: value }))} keyboardType="numeric" /><Text style={s.meta}>Assigned sites retain their own door and visiting-charge snapshots.</Text><SecondaryButton title="Cancel" onPress={() => navigation.goBack()} /><PrimaryButton title="Save Current Charges" onPress={save} style={styles.actionButton} /></Page>; }
 export function EditInstallerWithCity({ route, navigation }) { const { installerId } = route.params; const { installers, cities, doorTypes, updateInstaller } = useAdminData(); const installer = installers.find((item) => item.id === installerId); const [city, setCity] = useState(installer.city); const [charges, setCharges] = useState({ ...installer.charges }); const save = () => { updateInstaller({ ...installer, city, charges: { ...doorTypes.reduce((all, type) => ({ ...all, [type]: Number(charges[type] || 0) }), {}), visit: Number(charges.visit || 0) } }); Alert.alert('Installer updated', 'City and current master charges have been saved. Existing site snapshots are unchanged.'); navigation.goBack(); }; return <Page><Text style={s.title}>Edit Installer</Text><Text style={s.subtitle}>{installer.name}</Text><Text style={styles.fieldLabel}>City *</Text><FilterChips options={cities} selected={city} onSelect={setCity} /><SectionHeader title="Current Master Charges" />{doorTypes.map((type) => <Field key={type} label={type} value={String(charges[type] || '')} onChangeText={(value) => setCharges((item) => ({ ...item, [type]: value }))} keyboardType="numeric" />)}<Field label="Visiting Charge" value={String(charges.visit || '')} onChangeText={(value) => setCharges((item) => ({ ...item, visit: value }))} keyboardType="numeric" /><Text style={s.meta}>Existing site charges remain historical snapshots.</Text><SecondaryButton title="Cancel" onPress={() => navigation.goBack()} /><PrimaryButton title="Save Installer" onPress={save} style={styles.actionButton} /></Page>; }
+
 export function SitesScreen({ navigation }) {
-  const { sites, cities, installers } = useAdminData(); const [query, setQuery] = useState(''), [city, setCity] = useState('All'), [status, setStatus] = useState('All'); const list = sites.filter(
+  const { cities } = useAdminData();
+  const { token } = useAuth();
+
+  const [sites, setSites] = useState([]);
+  const [query, setQuery] = useState('');
+  const [city, setCity] = useState('All');
+  const [status, setStatus] = useState('All');
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+
+  const loadSites = async () => {
+    try {
+      setLoading(true);
+      setError('');
+
+      const response = await apiClient.get(
+        '/admin/jobs',
+        { token }
+      );
+
+      setSites(response?.data || []);
+    } catch (err) {
+      setError(err.message || 'Failed to load sites.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useFocusEffect(
+    useCallback(() => {
+      loadSites();
+    }, [token])
+  );
+
+  const list = sites.filter(
     (x) =>
-      (city === 'All' || x.city === city) &&
+      (city === 'All' || x.city_name === city) &&
       (
         status === 'All' ||
         (status === 'PAYMENT_PENDING'
-          ? x.paymentStatus === 'PAYMENT_PENDING'
+          ? x.payment_status === 'PAYMENT_PENDING'
           : x.status === status)
       ) &&
-      `${x.name} ${x.orderId}`.toLowerCase().includes(query.toLowerCase())
-  ); return <Page><View style={s.row}><View><Text style={s.title}>Sites / Jobs</Text><Text style={s.subtitle}>Manage assigned installation work.</Text></View><Pressable onPress={() => navigation.navigate('AssignSite')}><Text style={styles.add}>+ Assign</Text></Pressable></View><SearchBar value={query} onChangeText={setQuery} placeholder="Search site or order ID" /><FilterChips options={['All', ...cities]} selected={city} onSelect={setCity} /><FilterChips
-    options={['All', 'ASSIGNED', 'COMPLETED', 'PAYMENT_PENDING', 'PAID']}
-    selected={status}
-    onSelect={setStatus}
-  />{list.length ? list.map((x) => <SiteRow key={x.id} site={x} navigation={navigation} />) : <EmptyState text="No sites found for these filters." />}</Page>;
+      `${x.site_name} ${x.order_id}`
+        .toLowerCase()
+        .includes(query.toLowerCase())
+  );
+
+  return (
+    <Page>
+      <View style={s.row}>
+        <View>
+          <Text style={s.title}>Sites / Jobs</Text>
+          <Text style={s.subtitle}>
+            Manage assigned installation work.
+          </Text>
+        </View>
+
+        <Pressable
+          onPress={() => navigation.navigate('AssignSite')}
+        >
+          <Text style={styles.add}>+ Assign</Text>
+        </Pressable>
+      </View>
+
+      <SearchBar
+        value={query}
+        onChangeText={setQuery}
+        placeholder="Search site or order ID"
+      />
+
+      <FilterChips
+        options={['All', ...cities]}
+        selected={city}
+        onSelect={setCity}
+      />
+
+      <FilterChips
+        options={[
+          'All',
+          'ASSIGNED',
+          'COMPLETED',
+          'PAYMENT_PENDING',
+          'PAID',
+        ]}
+        selected={status}
+        onSelect={setStatus}
+      />
+
+      {loading ? (
+        <Text>Loading sites...</Text>
+      ) : error ? (
+        <View>
+          <Text>{error}</Text>
+
+          <Pressable onPress={loadSites}>
+            <Text>Retry</Text>
+          </Pressable>
+        </View>
+      ) : list.length ? (
+        list.map((x) => (
+          <SiteRow
+            key={x.id}
+            site={x}
+            navigation={navigation}
+          />
+        ))
+      ) : (
+        <EmptyState text="No sites found for these filters." />
+      )}
+    </Page>
+  );
 }
+
 export function AssignSite({ navigation, route }) { const { installers, cities, doorTypes, saveSite } = useAdminData(); const current = route.params?.siteId; const existing = useAdminData().sites.find((x) => x.id === current); const [form, setForm] = useState(existing || { name: '', orderId: '', customer: '', contact: '', address: '', city: cities[0], installerId: installers[0].id, expectedVisits: '2', visitCharge: String(installers[0].charges.visit), doors: [{ type: 'Single Leaf', quantity: '1', charge: String(installers[0].charges['Single Leaf']) }], orderFile: null, status: 'ASSIGNED' }); const installer = installers.find((x) => x.id === form.installerId); const changeInstaller = (id) => { const i = installers.find((x) => x.id === id); setForm((x) => ({ ...x, installerId: id, visitCharge: String(i.charges.visit), doors: x.doors.map((d) => ({ ...d, charge: String(i.charges[d.type]) })) })); }; const total = form.doors.reduce((sum, d) => sum + Number(d.quantity || 0) * Number(d.charge || 0), 0) + Number(form.expectedVisits || 0) * Number(form.visitCharge || 0); const save = () => { if (!form.name || !form.orderId || !form.customer) return Alert.alert('Missing details', 'Complete the required site information.'); saveSite({ ...form, expectedVisits: Number(form.expectedVisits), visitCharge: Number(form.visitCharge), doors: form.doors.map((d) => ({ ...d, quantity: Number(d.quantity), charge: Number(d.charge) })) }); Alert.alert(existing ? 'Site updated' : 'Site assigned', existing ? 'Site changes saved.' : 'The site has been assigned in local demo data.'); navigation.goBack(); }; return <Page><Text style={s.title}>{existing ? 'Edit Site' : 'Assign New Site'}</Text><Text style={s.subtitle}>Installer rates are captured with this job.</Text>{['name', 'orderId', 'customer', 'contact', 'address'].map((x) => <Field key={x} label={x === 'orderId' ? 'Order ID' : x === 'customer' ? 'Customer Name' : x === 'contact' ? 'Customer Contact' : x === 'address' ? 'Site Address' : 'Site Name'} value={form[x]} onChangeText={(v) => setForm((a) => ({ ...a, [x]: v }))} />)}<Text style={styles.fieldLabel}>City *</Text><FilterChips options={cities} selected={form.city} onSelect={(city) => setForm((x) => ({ ...x, city }))} /><Text style={styles.fieldLabel}>Select Installer *</Text><FilterChips options={installers.filter((x) => x.status === 'ACTIVE').map((x) => x.name)} selected={installer?.name} onSelect={(name) => changeInstaller(installers.find((x) => x.name === name).id)} /><Text style={s.meta}>Selected: {installer?.name} • Visit charge {money(form.visitCharge)}</Text><SectionHeader title="Door Items" />{form.doors.map((d, index) => <View key={index} style={s.card}><FilterChips options={doorTypes} selected={d.type} onSelect={(type) => setForm((x) => ({ ...x, doors: x.doors.map((a, i) => i === index ? { ...a, type, charge: String(installer.charges[type]) } : a) }))} /><Field label="Quantity" value={String(d.quantity)} onChangeText={(v) => setForm((x) => ({ ...x, doors: x.doors.map((a, i) => i === index ? { ...a, quantity: v } : a) }))} keyboardType="numeric" /><Field label="Installation Charge" value={String(d.charge)} onChangeText={(v) => setForm((x) => ({ ...x, doors: x.doors.map((a, i) => i === index ? { ...a, charge: v } : a) }))} keyboardType="numeric" />{form.doors.length > 1 ? <Pressable onPress={() => setForm((x) => ({ ...x, doors: x.doors.filter((_, i) => i !== index) }))}><Text style={styles.remove}>Remove door type</Text></Pressable> : null}</View>)}<Pressable onPress={() => setForm((x) => ({ ...x, doors: [...x.doors, { type: 'Double Leaf', quantity: '1', charge: String(installer.charges['Double Leaf']) }] }))}><Text style={styles.add}>+ Add Door Type</Text></Pressable><Field label="Expected Visit Count" value={String(form.expectedVisits)} onChangeText={(v) => setForm((x) => ({ ...x, expectedVisits: v }))} keyboardType="numeric" /><Field label="Visiting Charge" value={String(form.visitCharge)} onChangeText={(v) => setForm((x) => ({ ...x, visitCharge: v }))} keyboardType="numeric" /><View style={s.card}><Text style={s.cardTitle}>Estimated Job Total</Text><Text style={styles.total}>{money(total)}</Text><Pressable onPress={() => setForm((x) => ({ ...x, orderFile: x.orderFile ? 'order_form.pdf' : 'order_1024.pdf' }))}><Text style={styles.add}>{form.orderFile ? `Selected: ${form.orderFile}` : 'Upload Order Form (mock)'}</Text></Pressable></View><SecondaryButton title="Cancel" onPress={() => navigation.goBack()} /><PrimaryButton title={existing ? 'Save Changes' : 'Assign Site'} onPress={save} style={styles.actionButton} /></Page>; }
+
 export function AssignNewSiteFinal({ navigation, route }) {
-  const { installers, cities, doorTypes, sites, saveSite } = useAdminData();
+  const { token } = useAuth();
 
   const editingSiteId = route?.params?.siteId;
-  const existingSite = editingSiteId
-    ? sites.find((item) => item.id === editingSiteId)
-    : null;
 
-  const [form, setForm] = useState(() => {
-    if (existingSite) {
-      return {
-        ...existingSite,
-        city: existingSite.city || '',
-        installerId: existingSite.installerId || '',
-        expectedVisits: String(existingSite.expectedVisits ?? 0),
-        visitCharge: String(existingSite.visitCharge ?? ''),
-        doors: existingSite.doors.map((item) => ({
-          type: item.type,
-          quantity: String(item.quantity),
-          charge: String(item.charge),
-        })),
-      };
-    }
+  const [cities, setCities] = useState([]);
+  const [installers, setInstallers] = useState([]);
+  const [installerDetails, setInstallerDetails] = useState(null);
 
-    return {
-      name: '',
-      orderId: '',
-      customer: '',
-      contact: '',
-      address: '',
-      city: '',
-      installerId: '',
-      expectedVisits: '0',
-      visitCharge: '',
-      doors: [{ type: '', quantity: '', charge: '' }],
-      orderFile: null,
-      status: 'ASSIGNED',
-    };
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+
+  const [form, setForm] = useState({
+    name: '',
+    orderId: '',
+    customer: '',
+    contact: '',
+    address: '',
+    city: '',
+    cityId: '',
+    installerId: '',
+    expectedVisits: '0',
+    visitCharge: '',
+    doors: [
+      {
+        type: '',
+        quantity: '',
+        charge: '',
+      },
+    ],
+    orderFile: null,
   });
 
-  const activeInstallers = installers.filter(
-    (item) => item.status === 'ACTIVE' && item.city === form.city
-  );
-
-  const installer = installers.find(
-    (item) => item.id === form.installerId
-  );
-
   const update = (changes) => {
-    setForm((item) => ({ ...item, ...changes }));
+    setForm((item) => ({
+      ...item,
+      ...changes,
+    }));
   };
 
   const updateDoor = (index, changes) => {
     setForm((item) => ({
       ...item,
       doors: item.doors.map((door, doorIndex) =>
-        doorIndex === index ? { ...door, ...changes } : door
+        doorIndex === index
+          ? { ...door, ...changes }
+          : door
       ),
     }));
   };
 
-  const usedDoorTypes = form.doors
-    .map((item) => item.type)
-    .filter(Boolean);
+  const loadInstallerDetails = async (installerId) => {
+    try {
+      const response = await apiClient.get(
+        `/admin/installers/${installerId}`,
+        { token }
+      );
 
-  const installationTotal = form.doors.reduce(
-    (sum, item) =>
-      sum +
-      Number(item.quantity || 0) * Number(item.charge || 0),
-    0
+      const details = response?.data || null;
+
+      setInstallerDetails(details);
+
+      return details;
+    } catch (err) {
+      Alert.alert(
+        'Unable to load installer',
+        err.message ||
+          'Failed to load installer charges.'
+      );
+
+      return null;
+    }
+  };
+
+  const loadAssignmentData = async () => {
+    try {
+      setLoading(true);
+      setError('');
+
+      const requests = [
+        apiClient.get('/admin/cities', { token }),
+        apiClient.get('/admin/installers', { token }),
+      ];
+
+      if (editingSiteId) {
+        requests.push(
+          apiClient.get(
+            `/admin/jobs/${editingSiteId}`,
+            { token }
+          )
+        );
+      }
+
+      const responses = await Promise.all(requests);
+
+      const citiesData =
+        responses[0]?.data || [];
+
+      const installersData = (
+        responses[1]?.data || []
+      ).filter((item) => item.is_active);
+
+      setCities(citiesData);
+      setInstallers(installersData);
+
+      // CREATE MODE
+      if (!editingSiteId) {
+        setLoading(false);
+        return;
+      }
+
+      // EDIT MODE
+      const job = responses[2]?.data;
+
+      if (!job) {
+        throw new Error(
+          'Site details could not be loaded.'
+        );
+      }
+
+      const matchingCity = citiesData.find(
+        (city) => city.id === job.city_id
+      );
+
+      const jobDoors = (
+        job.doorItems || []
+      ).map((item) => ({
+        type: item.door_type,
+        quantity: String(
+          item.quantity ?? ''
+        ),
+        charge: String(
+          item.installation_charge_snapshot ??
+            ''
+        ),
+      }));
+
+      setForm({
+        name: job.site_name || '',
+        orderId: job.order_id || '',
+        customer: job.customer_name || '',
+        contact: job.contact_number || '',
+        address: job.address || '',
+        city:
+          matchingCity?.name ||
+          job.city_name ||
+          '',
+        cityId: job.city_id || '',
+        installerId: job.installer_id || '',
+        expectedVisits: String(
+          job.expected_visits ?? 0
+        ),
+        visitCharge: String(
+          job.visiting_charge_snapshot ?? ''
+        ),
+        doors:
+          jobDoors.length > 0
+            ? jobDoors
+            : [
+                {
+                  type: '',
+                  quantity: '',
+                  charge: '',
+                },
+              ],
+        orderFile: null,
+      });
+
+      await loadInstallerDetails(
+        job.installer_id
+      );
+    } catch (err) {
+      setError(
+        err.message ||
+          'Failed to load assignment data.'
+      );
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    loadAssignmentData();
+  }, [token, editingSiteId]);
+
+  const activeInstallers = installers.filter(
+    (item) =>
+      item.city_name === form.city &&
+      item.is_active
   );
 
-  const visitTotal =
-    Number(form.expectedVisits || 0) *
-    Number(form.visitCharge || 0);
+  const installer = installers.find(
+    (item) =>
+      item.id === form.installerId
+  );
 
-  const selectCity = (city) => {
+  const selectCity = (cityName) => {
+    const selectedCity = cities.find(
+      (item) => item.name === cityName
+    );
+
     update({
-      city,
+      city: cityName,
+      cityId: selectedCity?.id || '',
       installerId: '',
       visitCharge: '',
       doors: form.doors.map((item) => ({
@@ -703,48 +1148,207 @@ export function AssignNewSiteFinal({ navigation, route }) {
         charge: '',
       })),
     });
+
+    setInstallerDetails(null);
   };
 
-  const selectInstaller = (name) => {
-    const selected = activeInstallers.find(
-      (item) => item.name === name
-    );
+  const getDoorChargeFromDetails = (
+    details,
+    doorType
+  ) => {
+    const charge =
+      details?.doorCharges?.find(
+        (item) =>
+          item.door_type === doorType
+      );
+
+    return charge
+      ? String(
+          charge.installation_charge
+        )
+      : '';
+  };
+
+  const selectInstaller = async (
+    installerName
+  ) => {
+    const selected =
+      activeInstallers.find(
+        (item) =>
+          item.name === installerName
+      );
 
     if (!selected) return;
 
+    const details =
+      await loadInstallerDetails(
+        selected.id
+      );
+
+    // Changing installer means the site's
+    // pricing snapshot is changed to the
+    // new installer's current rates.
+
     update({
       installerId: selected.id,
-      visitCharge: String(selected.charges.visit),
-      doors: form.doors.map((item) => ({
-        ...item,
-        charge: item.type
-          ? String(selected.charges[item.type] ?? '')
+
+      visitCharge: String(
+        details?.visiting_charge ??
+          selected.visiting_charge ??
+          0
+      ),
+
+      doors: form.doors.map((door) => ({
+        ...door,
+
+        charge: door.type
+          ? getDoorChargeFromDetails(
+              details,
+              door.type
+            )
           : '',
       })),
     });
   };
 
-  const selectDoorType = (index, type) => {
-    if (!installer) return;
+  const getDoorCharge = (doorType) => {
+    return getDoorChargeFromDetails(
+      installerDetails,
+      doorType
+    );
+  };
 
+  const selectDoorType = (
+    index,
+    type
+  ) => {
     updateDoor(index, {
       type,
-      charge: String(installer.charges[type] ?? ''),
+      charge:
+        getDoorCharge(type),
     });
   };
 
-  const save = () => {
+  const usedDoorTypes = form.doors
+    .map((item) => item.type)
+    .filter(Boolean);
+
+  const installationTotal =
+    form.doors.reduce(
+      (sum, item) =>
+        sum +
+        Number(item.quantity || 0) *
+          Number(item.charge || 0),
+      0
+    );
+
+  const visitTotal =
+    Number(form.expectedVisits || 0) *
+    Number(form.visitCharge || 0);
+
+  // -----------------------------
+  // ORDER FORM FILE PICKER
+  // -----------------------------
+
+  const selectOrderFile = async () => {
+    try {
+      const result = await File.pickFileAsync({
+        multipleFiles: false,
+        mimeTypes: [
+          'application/pdf',
+          'application/vnd.ms-excel',
+          'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+          'application/msword',
+          'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+        ],
+      });
+
+      if (result.canceled) {
+        return;
+      }
+
+      const file = result.result;
+
+      if (!file) {
+        return;
+      }
+
+      update({
+        orderFile: {
+          uri: file.uri,
+          name: file.name,
+          mimeType: file.type,
+          expoFile: file,
+        },
+      });
+    } catch (error) {
+      Alert.alert(
+        'Unable to Select File',
+        error.message || 'Failed to select the order form.'
+      );
+    }
+  };
+
+  // -----------------------------
+  // ORDER FORM UPLOAD
+  // -----------------------------
+
+  const uploadOrderFile = async (jobId, file) => {
+  if (!file?.expoFile) {
+    return null;
+  }
+
+    const formData = new FormData();
+
+    formData.append('file', file.expoFile);
+
+    const response = await expoFetch(
+      `${API_BASE_URL}/admin/jobs/${jobId}/order-file`,
+      {
+        method: 'POST',
+        headers: {
+          Accept: 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: formData,
+      }
+    );
+
+    let responseData = null;
+
+    try {
+      responseData = await response.json();
+    } catch {
+      responseData = null;
+    }
+
+    if (!response.ok) {
+      throw new Error(
+        responseData?.message ||
+          `Order form upload failed (${response.status})`
+      );
+    }
+
+    return responseData;
+  };
+
+  // -----------------------------
+  // SAVE
+  // -----------------------------
+
+  const save = async () => {
     const invalid =
-      !form.name ||
-      !form.orderId ||
-      !form.customer ||
-      !form.contact ||
-      !form.address ||
-      !form.city ||
-      !installer ||
+      !form.name.trim() ||
+      !form.orderId.trim() ||
+      !form.customer.trim() ||
+      !form.contact.trim() ||
+      !form.address.trim() ||
+      !form.cityId ||
+      !form.installerId ||
       form.doors.some(
         (item) =>
           !item.type ||
+          !DOOR_TYPE_IDS[item.type] ||
           Number(item.quantity) <= 0 ||
           Number(item.charge) < 0
       );
@@ -754,45 +1358,231 @@ export function AssignNewSiteFinal({ navigation, route }) {
         'Complete required fields',
         'Enter site details, city, installer, and valid door items.'
       );
+
       return;
     }
 
-    const saved = saveSite({
-      ...form,
-      expectedVisits: Number(form.expectedVisits || 0),
-      visitCharge: Number(form.visitCharge || 0),
-      doors: form.doors.map((item) => ({
-        ...item,
-        quantity: Number(item.quantity),
-        charge: Number(item.charge),
-      })),
-    });
+    try {
+      setSaving(true);
 
-    Alert.alert(
-      editingSiteId ? 'Site updated' : 'Site assigned',
-      editingSiteId
-        ? 'Site changes saved. Historical charge snapshots are preserved.'
-        : 'Current installer charges have been saved as this job’s historical snapshot.'
-    );
+      const payload = {
+        orderId:
+          form.orderId.trim(),
 
-    navigation.replace('SiteDetails', {
-      siteId: saved.id,
-    });
+        siteName:
+          form.name.trim(),
+
+        customerName:
+          form.customer.trim(),
+
+        contactNumber:
+          form.contact.trim(),
+
+        address:
+          form.address.trim(),
+
+        cityId:
+          form.cityId,
+
+        installerId:
+          form.installerId,
+
+        expectedVisits:
+          Number(
+            form.expectedVisits || 0
+          ),
+
+        doorItems:
+          form.doors.map((item) => ({
+            doorTypeId:
+              DOOR_TYPE_IDS[item.type],
+
+            quantity:
+              Number(item.quantity),
+          })),
+      };
+
+      let response;
+
+      // -----------------------------
+      // EDIT EXISTING SITE
+      // -----------------------------
+
+      if (editingSiteId) {
+        response =
+          await apiClient.put(
+            `/admin/jobs/${editingSiteId}`,
+            {
+              ...payload,
+
+              visitingChargeSnapshot:
+                Number(
+                  form.visitCharge || 0
+                ),
+
+              doorItems:
+                form.doors.map(
+                  (item) => ({
+                    doorTypeId:
+                      DOOR_TYPE_IDS[
+                        item.type
+                      ],
+
+                    quantity:
+                      Number(
+                        item.quantity
+                      ),
+
+                    installationCharge:
+                      Number(
+                        item.charge || 0
+                      ),
+                  })
+                ),
+            },
+            { token }
+          );
+      }
+
+      // -----------------------------
+      // CREATE NEW SITE
+      // -----------------------------
+
+      else {
+        response =
+          await apiClient.post(
+            '/admin/jobs',
+            payload,
+            { token }
+          );
+      }
+
+      const saved =
+        response?.data;
+
+      if (!saved?.id) {
+        throw new Error(
+          'Site was saved but no job ID was returned.'
+        );
+      }
+
+      // -----------------------------
+      // UPLOAD ORDER FORM
+      // -----------------------------
+
+      if (form.orderFile) {
+        await uploadOrderFile(
+          saved.id,
+          form.orderFile
+        );
+      }
+
+      Alert.alert(
+        editingSiteId
+          ? 'Site updated'
+          : 'Site assigned',
+
+        form.orderFile
+          ? editingSiteId
+            ? 'Site changes and order form saved successfully.'
+            : 'Site assigned and order form uploaded successfully.'
+          : editingSiteId
+          ? 'Site changes saved successfully.'
+          : 'Site has been assigned successfully.'
+      );
+
+      navigation.replace(
+        'SiteDetails',
+        {
+          siteId: saved.id,
+        }
+      );
+    } catch (err) {
+      console.error(
+        'Save site error:',
+        err
+      );
+
+      Alert.alert(
+        editingSiteId
+          ? 'Unable to update site'
+          : 'Unable to assign site',
+
+        err.message ||
+          'Something went wrong.'
+      );
+    } finally {
+      setSaving(false);
+    }
   };
+
+  // -----------------------------
+  // LOADING
+  // -----------------------------
+
+  if (loading) {
+    return (
+      <Page>
+        <Text>
+          {editingSiteId
+            ? 'Loading site details...'
+            : 'Loading assignment data...'}
+        </Text>
+      </Page>
+    );
+  }
+
+  // -----------------------------
+  // ERROR
+  // -----------------------------
+
+  if (error) {
+    return (
+      <Page>
+        <Text style={s.title}>
+          {editingSiteId
+            ? 'Edit Site'
+            : 'Assign New Site'}
+        </Text>
+
+        <Text style={styles.error}>
+          {error}
+        </Text>
+
+        <Pressable
+          onPress={
+            loadAssignmentData
+          }
+        >
+          <Text style={styles.add}>
+            Retry
+          </Text>
+        </Pressable>
+      </Page>
+    );
+  }
+
+  // -----------------------------
+  // UI
+  // -----------------------------
 
   return (
     <Page>
       <Text style={s.title}>
-        {editingSiteId ? 'Edit Site' : 'Assign New Site'}
+        {editingSiteId
+          ? 'Edit Site'
+          : 'Assign New Site'}
       </Text>
 
       <Text style={s.subtitle}>
         {editingSiteId
-          ? 'Edit site details while preserving the site’s saved charge snapshots.'
-          : 'Current master rates are copied into this job when it is assigned.'}
+          ? 'Edit site details. Changing the installer updates this site to the new installer’s current rates.'
+          : 'Current installer rates are captured when the job is assigned.'}
       </Text>
 
-      <SectionHeader title="Site Information" />
+      <SectionHeader
+        title="Site Information"
+      />
 
       {[
         ['name', 'Site Name'],
@@ -800,129 +1590,256 @@ export function AssignNewSiteFinal({ navigation, route }) {
         ['customer', 'Customer Name'],
         ['contact', 'Customer Contact'],
         ['address', 'Site Address'],
-      ].map(([key, label]) => (
-        <Field
-          key={key}
-          label={label}
-          value={form[key]}
-          onChangeText={(value) => update({ [key]: value })}
-        />
-      ))}
+      ].map(
+        ([key, label]) => (
+          <Field
+            key={key}
+            label={label}
+            value={form[key]}
+            onChangeText={(
+              value
+            ) =>
+              update({
+                [key]: value,
+              })
+            }
+          />
+        )
+      )}
 
-      <SectionHeader title="Assignment" />
+      <SectionHeader
+        title="Assignment"
+      />
 
       <SelectField
         label="City"
         value={form.city}
         placeholder="Select City"
-        options={cities}
-        onSelect={selectCity}
+        options={cities.map(
+          (item) =>
+            item.name
+        )}
+        onSelect={
+          selectCity
+        }
       />
 
       <SelectField
         label="Installer"
-        value={installer?.name}
-        placeholder={
-          form.city ? 'Select Installer' : 'Select City first'
+        value={
+          installer?.name
         }
-        options={activeInstallers.map((item) => item.name)}
-        onSelect={selectInstaller}
-        disabled={!form.city || !activeInstallers.length}
+        placeholder={
+          form.city
+            ? 'Select Installer'
+            : 'Select City first'
+        }
+        options={activeInstallers.map(
+          (item) =>
+            item.name
+        )}
+        onSelect={
+          selectInstaller
+        }
+        disabled={
+          !form.city ||
+          !activeInstallers.length
+        }
       />
 
-      {form.city && !activeInstallers.length ? (
-        <Text style={styles.error}>
-          No active installers available in this city.
+      {form.city &&
+      !activeInstallers.length ? (
+        <Text
+          style={
+            styles.error
+          }
+        >
+          No active installers
+          available in this
+          city.
         </Text>
       ) : null}
 
       {installer ? (
         <View style={s.card}>
-          <Text style={s.cardTitle}>{installer.name}</Text>
-          <Text style={s.meta}>
-            {installer.phone} • {installer.city}
+          <Text
+            style={s.cardTitle}
+          >
+            {installer.name}
           </Text>
-          <Text style={s.meta}>
-            Current visiting charge: {money(installer.charges.visit)}
+
+          <Text
+            style={s.meta}
+          >
+            {
+              installer.phone_number
+            }{' '}
+            •{' '}
+            {
+              installer.city_name
+            }
+          </Text>
+
+          <Text
+            style={s.meta}
+          >
+            Current visiting
+            charge:{' '}
+            {money(
+              installerDetails?.visiting_charge ||
+                installer.visiting_charge ||
+                0
+            )}
           </Text>
         </View>
       ) : null}
 
-      <SectionHeader title="Door Details" />
+      <SectionHeader
+        title="Door Details"
+      />
 
-      {form.doors.map((door, index) => {
-        const options = doorTypes.filter(
-          (type) =>
-            type === door.type ||
-            !usedDoorTypes.includes(type)
-        );
+      {form.doors.map(
+        (door, index) => {
+          const options =
+            DOOR_TYPES.filter(
+              (type) =>
+                type ===
+                  door.type ||
+                !usedDoorTypes.includes(
+                  type
+                )
+            );
 
-        return (
-          <View key={index} style={s.card}>
-            <Text style={s.cardTitle}>
-              Door Item {index + 1}
-            </Text>
-
-            <SelectField
-              label="Door Type"
-              value={door.type}
-              placeholder="Select Door Type"
-              options={options}
-              onSelect={(type) =>
-                selectDoorType(index, type)
-              }
-              disabled={!installer}
-            />
-
-            <Field
-              label="Quantity"
-              value={String(door.quantity)}
-              onChangeText={(quantity) =>
-                updateDoor(index, { quantity })
-              }
-              keyboardType="numeric"
-            />
-
-            <Field
-              label="Installation Charge"
-              value={String(door.charge)}
-              onChangeText={(charge) =>
-                updateDoor(index, { charge })
-              }
-              keyboardType="numeric"
-            />
-
-            <Text style={styles.total}>
-              Total:{' '}
-              {money(
-                Number(door.quantity || 0) *
-                Number(door.charge || 0)
-              )}
-            </Text>
-
-            {form.doors.length > 1 ? (
-              <Pressable
-                onPress={() =>
-                  setForm((item) => ({
-                    ...item,
-                    doors: item.doors.filter(
-                      (_, doorIndex) =>
-                        doorIndex !== index
-                    ),
-                  }))
+          return (
+            <View
+              key={index}
+              style={s.card}
+            >
+              <Text
+                style={
+                  s.cardTitle
                 }
               >
-                <Text style={styles.remove}>
-                  Remove door type
-                </Text>
-              </Pressable>
-            ) : null}
-          </View>
-        );
-      })}
+                Door Item{' '}
+                {index + 1}
+              </Text>
+
+              <SelectField
+                label="Door Type"
+                value={
+                  door.type
+                }
+                placeholder="Select Door Type"
+                options={
+                  options
+                }
+                onSelect={(
+                  type
+                ) =>
+                  selectDoorType(
+                    index,
+                    type
+                  )
+                }
+                disabled={
+                  !installerDetails
+                }
+              />
+
+              <Field
+                label="Quantity"
+                value={String(
+                  door.quantity
+                )}
+                onChangeText={(
+                  quantity
+                ) =>
+                  updateDoor(
+                    index,
+                    {
+                      quantity,
+                    }
+                  )
+                }
+                keyboardType="numeric"
+              />
+
+              <Field
+                label="Installation Charge"
+                value={String(
+                  door.charge
+                )}
+                onChangeText={(
+                  charge
+                ) =>
+                  updateDoor(
+                    index,
+                    {
+                      charge,
+                    }
+                  )
+                }
+                keyboardType="numeric"
+              />
+
+              <Text
+                style={
+                  styles.total
+                }
+              >
+                Total:{' '}
+                {money(
+                  Number(
+                    door.quantity ||
+                      0
+                  ) *
+                    Number(
+                      door.charge ||
+                        0
+                    )
+                )}
+              </Text>
+
+              {form.doors
+                .length > 1 ? (
+                <Pressable
+                  onPress={() =>
+                    setForm(
+                      (
+                        item
+                      ) => ({
+                        ...item,
+                        doors:
+                          item.doors.filter(
+                            (
+                              _,
+                              doorIndex
+                            ) =>
+                              doorIndex !==
+                              index
+                          ),
+                      })
+                    )
+                  }
+                >
+                  <Text
+                    style={
+                      styles.remove
+                    }
+                  >
+                    Remove door
+                    type
+                  </Text>
+                </Pressable>
+              ) : null}
+            </View>
+          );
+        }
+      )}
 
       {installer &&
-        usedDoorTypes.length < doorTypes.length ? (
+      usedDoorTypes.length <
+        DOOR_TYPES.length ? (
         <Pressable
           onPress={() =>
             update({
@@ -937,83 +1854,407 @@ export function AssignNewSiteFinal({ navigation, route }) {
             })
           }
         >
-          <Text style={styles.add}>
+          <Text
+            style={
+              styles.add
+            }
+          >
             + Add Door Type
           </Text>
         </Pressable>
       ) : null}
 
-      <SectionHeader title="Visit Details" />
+      <SectionHeader
+        title="Visit Details"
+      />
 
       <Field
         label="Expected Visit Count"
-        value={String(form.expectedVisits)}
-        onChangeText={(expectedVisits) =>
-          update({ expectedVisits })
+        value={String(
+          form.expectedVisits
+        )}
+        onChangeText={(
+          expectedVisits
+        ) =>
+          update({
+            expectedVisits,
+          })
         }
         keyboardType="numeric"
       />
 
       <Field
         label="Visiting Charge"
-        value={String(form.visitCharge)}
-        onChangeText={(visitCharge) =>
-          update({ visitCharge })
+        value={String(
+          form.visitCharge
+        )}
+        onChangeText={(
+          visitCharge
+        ) =>
+          update({
+            visitCharge,
+          })
         }
         keyboardType="numeric"
       />
 
-      <SectionHeader title="Order Form" />
+      <SectionHeader
+        title="Order Form"
+      />
 
       <View style={s.card}>
         <Pressable
-          onPress={() =>
-            update({
-              orderFile: form.orderFile
-                ? 'order_form.xlsx'
-                : 'order_form.pdf',
-            })
+          onPress={
+            selectOrderFile
           }
         >
-          <Text style={styles.add}>
+          <Text
+            style={
+              styles.add
+            }
+          >
             {form.orderFile
-              ? `Selected: ${form.orderFile}`
-              : 'Upload / Select Order Form (mock)'}
+              ? `Selected: ${
+                  form.orderFile
+                    .name ||
+                  'Order Form'
+                }`
+              : 'Upload Order Form'}
           </Text>
         </Pressable>
+
+        {form.orderFile ? (
+          <Text
+            style={s.meta}
+          >
+            {form.orderFile
+              .mimeType ||
+              'Document'}
+          </Text>
+        ) : null}
       </View>
 
-      <SectionHeader title="Financial Summary" />
+      <SectionHeader
+        title="Financial Summary"
+      />
 
       <View style={s.card}>
-        <Text style={s.meta}>
-          Installation Total: {money(installationTotal)}
+        <Text
+          style={s.meta}
+        >
+          Installation Total:{' '}
+          {money(
+            installationTotal
+          )}
         </Text>
 
-        <Text style={s.meta}>
-          Expected Visit Cost: {money(visitTotal)}
+        <Text
+          style={s.meta}
+        >
+          Expected Visit Cost:{' '}
+          {money(
+            visitTotal
+          )}
         </Text>
 
-        <Text style={styles.total}>
+        <Text
+          style={
+            styles.total
+          }
+        >
           Estimated Job Total:{' '}
-          {money(installationTotal + visitTotal)}
+          {money(
+            installationTotal +
+              visitTotal
+          )}
         </Text>
       </View>
 
       <SecondaryButton
         title="Cancel"
-        onPress={() => navigation.goBack()}
+        onPress={() =>
+          navigation.goBack()
+        }
       />
 
       <PrimaryButton
-        title={editingSiteId ? 'Save Changes' : 'Assign Site'}
+        title={
+          saving
+            ? 'Saving...'
+            : editingSiteId
+            ? 'Save Changes'
+            : 'Assign Site'
+        }
         onPress={save}
-        style={styles.actionButton}
+        style={
+          styles.actionButton
+        }
       />
     </Page>
   );
 }
-export function SiteDetails({ route, navigation }) { const { siteId } = route.params; const { sites, installers, visits } = useAdminData(); const site = sites.find((x) => x.id === siteId), installer = installers.find((x) => x.id === site.installerId), siteVisits = visits.filter((x) => x.siteId === siteId), total = getSiteTotal(site, visits); return <Page><Text style={s.title}>{site.name}</Text><Text style={s.subtitle}>{site.orderId}  •  {site.city}</Text><View style={[s.card, s.row]}><Text style={s.meta}>{site.customer} • {site.contact}</Text><StatusBadge status={site.status} /></View><Text style={s.meta}>{site.address}</Text><SectionHeader title="Door Details" />{site.doors.map((x) => <View key={x.type} style={[s.card, s.row]}><Text style={s.cardTitle}>{x.type} × {x.quantity}</Text><Text style={s.meta}>{money(x.charge * x.quantity)}</Text></View>)}<SectionHeader title="Visit Information" /><View style={s.card}><Text style={s.meta}>Expected: {site.expectedVisits}  •  Completed: {siteVisits.filter((x) => x.status === 'COMPLETED').length}  •  Extra: {siteVisits.filter((x) => x.type === 'EXTRA').length}</Text><Text style={s.meta}>Approved: {siteVisits.filter((x) => x.status === 'APPROVED').length}  •  Pending: {siteVisits.filter((x) => x.status === 'PENDING_APPROVAL').length}</Text></View><SectionHeader title="Payment Summary" /><View style={s.card}><Text style={s.meta}>Installation: {money(total.installation)} • Normal visits: {money(total.normal)}</Text><Text style={s.meta}>Approved extra: {money(total.extra)}</Text><Text style={styles.total}>Total payable: {money(total.total)}</Text><StatusBadge status={site.paymentStatus} /></View><View style={s.card}><Text style={s.cardTitle}>Order Form</Text><Text style={s.meta}>{site.orderFile || 'No file selected'}</Text><Pressable onPress={() => Alert.alert('Order form', 'This demo does not download files.')}><Text style={styles.add}>View / Download</Text></Pressable></View><PrimaryButton title="View Visits" onPress={() => navigation.navigate('Visits', { siteId })} /><SecondaryButton title="Edit Site" onPress={() => navigation.navigate('EditSite', { siteId })} style={styles.actionButton} /><SecondaryButton title="View Installer" onPress={() => navigation.navigate('InstallerDetails', { installerId: installer.id })} style={styles.actionButton} /></Page>; }
+
+export function SiteDetails({ route, navigation }) {
+  const { siteId } = route.params;
+  const { token } = useAuth();
+
+  const [site, setSite] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+  const [orderFile, setOrderFile] = useState(null);
+
+  const loadSite = async () => {
+    try {
+      setLoading(true);
+      setError('');
+
+      const response = await apiClient.get(
+        `/admin/jobs/${siteId}`,
+        { token }
+      );
+
+      setSite(response?.data);
+
+      try {
+        const fileResponse = await apiClient.get(
+          `/admin/jobs/${siteId}/order-file`,
+          { token }
+        );
+
+        setOrderFile(fileResponse?.data || null);
+      } catch (fileError) {
+        // No order form attached is not a site-loading error.
+        setOrderFile(null);
+      }
+    } catch (err) {
+      setError(err.message || 'Failed to load site details.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useFocusEffect(
+    useCallback(() => {
+      loadSite();
+    }, [siteId, token])
+  );
+
+  if (loading) {
+    return (
+      <Page>
+        <Text>Loading site details...</Text>
+      </Page>
+    );
+  }
+
+  if (error || !site) {
+    return (
+      <Page>
+        <Text style={s.title}>Site Details</Text>
+        <Text style={styles.error}>
+          {error || 'Site not found.'}
+        </Text>
+
+        <Pressable onPress={loadSite}>
+          <Text style={styles.add}>Retry</Text>
+        </Pressable>
+      </Page>
+    );
+  }
+
+  const installationTotal = (site.doorItems || []).reduce(
+    (sum, item) =>
+      sum +
+      Number(item.quantity || 0) *
+      Number(item.installation_charge_snapshot || 0),
+    0
+  );
+
+  const normalVisits = (site.visits || []).filter(
+    (visit) =>
+      visit.type === 'NORMAL' &&
+      visit.status === 'COMPLETED'
+  ).length;
+
+  const approvedExtraVisits = (site.visits || []).filter(
+    (visit) =>
+      visit.type === 'EXTRA' &&
+      visit.status === 'APPROVED'
+  ).length;
+
+  const pendingExtraVisits = (site.visits || []).filter(
+    (visit) =>
+      visit.type === 'EXTRA' &&
+      visit.status === 'PENDING_APPROVAL'
+  ).length;
+
+  const visitTotal =
+    (normalVisits + approvedExtraVisits) *
+    Number(site.visiting_charge_snapshot || 0);
+
+  const total = installationTotal + visitTotal;
+
+  return (
+    <Page>
+      <Text style={s.title}>{site.site_name}</Text>
+
+      <Text style={s.subtitle}>
+        {site.order_id} • {site.city_name}
+      </Text>
+
+      <View style={[s.card, s.row]}>
+        <View>
+          <Text style={s.meta}>
+            {site.customer_name}
+          </Text>
+
+          <Text style={s.meta}>
+            {site.contact_number}
+          </Text>
+        </View>
+
+        <StatusBadge status={site.status} />
+      </View>
+
+      <Text style={s.meta}>{site.address}</Text>
+
+      <SectionHeader title="Installer" />
+
+      <View style={s.card}>
+        <Text style={s.cardTitle}>
+          {site.installer_name}
+        </Text>
+
+        <Text style={s.meta}>
+          Visiting Charge: ₹
+          {Number(
+            site.visiting_charge_snapshot || 0
+          ).toFixed(2)}
+        </Text>
+      </View>
+
+      <SectionHeader title="Door Details" />
+
+      {(site.doorItems || []).map((item) => (
+        <View
+          key={item.door_type_id}
+          style={[s.card, s.row]}
+        >
+          <Text style={s.cardTitle}>
+            {item.door_type} × {item.quantity}
+          </Text>
+
+          <Text style={s.meta}>
+            ₹
+            {(
+              Number(item.quantity || 0) *
+              Number(
+                item.installation_charge_snapshot || 0
+              )
+            ).toFixed(2)}
+          </Text>
+        </View>
+      ))}
+
+      <SectionHeader title="Visit Information" />
+
+      <View style={s.card}>
+        <Text style={s.meta}>
+          Expected: {site.expected_visits}
+        </Text>
+
+        <Text style={s.meta}>
+          Completed: {(site.visits || []).filter(
+            (visit) => visit.status === 'COMPLETED'
+          ).length}
+        </Text>
+
+        <Text style={s.meta}>
+          Approved Extra: {approvedExtraVisits}
+        </Text>
+
+        <Text style={s.meta}>
+          Pending Approval: {pendingExtraVisits}
+        </Text>
+      </View>
+
+      <SectionHeader title="Payment Summary" />
+
+      <View style={s.card}>
+        <Text style={s.meta}>
+          Installation: ₹{installationTotal.toFixed(2)}
+        </Text>
+
+        <Text style={s.meta}>
+          Visits: ₹{visitTotal.toFixed(2)}
+        </Text>
+
+        <Text style={styles.total}>
+          Total Payable: ₹{total.toFixed(2)}
+        </Text>
+
+        <StatusBadge
+          status={site.payment_status}
+        />
+      </View>
+
+     <SectionHeader title="Order Form" />
+
+    <View style={s.card}>
+      <Text style={s.cardTitle}>
+        {orderFile?.file_name || 'No order form uploaded'}
+      </Text>
+
+      {orderFile ? (
+        <>
+          <Text style={s.meta}>
+            {orderFile.file_type || 'Document'}
+          </Text>
+
+          <Pressable
+            onPress={() => {
+              const fileUrl =
+                `${API_BASE_URL.replace('/api/v1', '')}${orderFile.file_url}`;
+
+              Linking.openURL(fileUrl);
+            }}
+          >
+            <Text style={styles.add}>
+              Open Order Form
+            </Text>
+          </Pressable>
+        </>
+      ) : (
+        <Text style={s.meta}>
+          No order form is attached to this site.
+        </Text>
+      )}
+    </View>
+
+      <PrimaryButton
+        title="View Visits"
+        onPress={() =>
+          navigation.navigate('Visits', {
+            siteId: site.id,
+          })
+        }
+      />
+
+      {site.status === 'ASSIGNED' ? (
+        <SecondaryButton
+          title="Edit Site"
+          onPress={() =>
+            navigation.navigate('EditSite', {
+              siteId: site.id,
+            })
+          }
+          style={styles.actionButton}
+        />
+      ) : null}
+    </Page>
+  );
+}
+
 export function VisitsScreen({ navigation, route }) { const { visits, sites, installers } = useAdminData(); const [filter, setFilter] = useState('All'); const list = visits.filter((x) => !route.params?.siteId || x.siteId === route.params.siteId).filter((x) => filter === 'All' || (filter === 'Normal' && x.type === 'NORMAL') || (filter === 'Extra' && x.type === 'EXTRA') || (filter === 'Pending' && x.status === 'PENDING_APPROVAL') || (filter === 'Approved' && x.status === 'APPROVED') || (filter === 'Rejected' && x.status === 'REJECTED')); return <Page><Text style={s.title}>Visits</Text><Text style={s.subtitle}>All normal and extra installation visits.</Text><FilterChips options={['All', 'Normal', 'Extra', 'Pending', 'Approved', 'Rejected']} selected={filter} onSelect={setFilter} />{list.length ? list.map((v) => { const site = sites.find((x) => x.id === v.siteId), ins = installers.find((x) => x.id === site.installerId); return <Pressable key={v.id} style={s.card} onPress={() => navigation.navigate('VisitDetails', { visitId: v.id })}><View style={s.row}><Text style={s.cardTitle}>{site.name} • Visit {v.number}</Text><StatusBadge status={v.status} /></View><Text style={s.meta}>{ins.name} • {v.date} • {v.type}</Text><Text style={s.meta}>{v.reason} • Charge {money(site.visitCharge)}</Text></Pressable> }) : <EmptyState text="No visits found." />}</Page>; }
 export function VisitDetails({ route, navigation }) { const { visitId } = route.params; const { visits, sites, installers, updateVisit } = useAdminData(); const v = visits.find((x) => x.id === visitId), site = sites.find((x) => x.id === v.siteId), ins = installers.find((x) => x.id === site.installerId); const decide = (status) => { updateVisit(v.id, status); Alert.alert(status === 'APPROVED' ? 'Visit approved' : 'Visit rejected', 'Local payment totals have been updated.'); navigation.goBack(); }; return <Page><Text style={s.title}>Visit {v.number}</Text><Text style={s.subtitle}>{site.name} • {ins.name}</Text><View style={s.card}><Text style={s.meta}>Date: {v.date}</Text><Text style={s.meta}>Type: {v.type} • Charge: {money(site.visitCharge)}</Text><Text style={s.meta}>Reason: {v.reason}</Text><Text style={s.meta}>Remark: {v.remark}</Text><View style={{ marginTop: spacing.sm }}><StatusBadge status={v.status} /></View></View>{v.status === 'PENDING_APPROVAL' ? <><PrimaryButton title="Approve" onPress={() => decide('APPROVED')} /><SecondaryButton title="Reject" onPress={() => decide('REJECTED')} style={styles.actionButton} /></> : null}</Page>; }
 export function ApprovalsScreen({ navigation }) { const { visits, sites, installers, updateVisit } = useAdminData(); const [tab, setTab] = useState('Pending'); const list = visits.filter((x) => x.type === 'EXTRA' && (tab === 'Pending' ? x.status === 'PENDING_APPROVAL' : x.status === tab.toUpperCase())); return <Page><Text style={s.title}>Extra Visit Approvals</Text><Text style={s.subtitle}>{visits.filter((x) => x.status === 'PENDING_APPROVAL').length} requests awaiting action.</Text><FilterChips options={['Pending', 'Approved', 'Rejected']} selected={tab} onSelect={setTab} />{list.length ? list.map((v) => { const site = sites.find((x) => x.id === v.siteId), ins = installers.find((x) => x.id === site.installerId); return <View key={v.id} style={s.card}><View style={s.row}><Text style={s.cardTitle}>{site.name} • Visit {v.number}</Text><StatusBadge status={v.status} /></View><Text style={s.meta}>{ins.name} • {site.city} • {v.date}</Text><Text style={s.meta}>{v.reason} — {v.remark} • {money(site.visitCharge)}</Text>{v.status === 'PENDING_APPROVAL' ? <View style={styles.buttonRow}><SecondaryButton title="Reject" onPress={() => updateVisit(v.id, 'REJECTED')} style={styles.half} /><PrimaryButton title="Approve" onPress={() => updateVisit(v.id, 'APPROVED')} style={styles.half} /></View> : <Pressable onPress={() => navigation.navigate('VisitDetails', { visitId: v.id })}><Text style={styles.add}>View details</Text></Pressable>}</View> }) : <EmptyState text={`No ${tab.toLowerCase()} extra visit requests.`} />}</Page>; }

@@ -16,25 +16,27 @@ export class ApiError extends Error {
  * Builds the full URL from base URL and endpoint.
  */
 function buildUrl(endpoint) {
-  if (endpoint.startsWith('http://') || endpoint.startsWith('https://')) {
+  if (
+    endpoint.startsWith('http://') ||
+    endpoint.startsWith('https://')
+  ) {
     return endpoint;
   }
-  const cleanEndpoint = endpoint.startsWith('/') ? endpoint : `/${endpoint}`;
+
+  const cleanEndpoint = endpoint.startsWith('/')
+    ? endpoint
+    : `/${endpoint}`;
+
   return `${API_BASE_URL}${cleanEndpoint}`;
 }
 
 /**
  * Centralized request function.
- *
- * @param {string} endpoint - API path (e.g. '/health' or '/auth/login')
- * @param {object} [options] - Request options
- * @param {string} [options.method='GET'] - HTTP method
- * @param {any} [options.body] - Request body (object or string)
- * @param {string} [options.token] - Optional JWT bearer token
- * @param {object} [options.headers] - Additional custom headers
- * @returns {Promise<any>} - Parsed JSON response data
  */
-export async function request(endpoint, options = {}) {
+export async function request(
+  endpoint,
+  options = {}
+) {
   const {
     method = 'GET',
     body,
@@ -45,17 +47,38 @@ export async function request(endpoint, options = {}) {
 
   const url = buildUrl(endpoint);
 
+  const isFormData =
+    typeof FormData !== 'undefined' &&
+    body instanceof FormData;
+
   const requestHeaders = {
     Accept: 'application/json',
     ...headers,
   };
 
-  if (body !== undefined && body !== null && !requestHeaders['Content-Type']) {
-    requestHeaders['Content-Type'] = 'application/json';
+  /*
+   * IMPORTANT:
+   * Do NOT manually set Content-Type for FormData.
+   * React Native/fetch will automatically set:
+   *
+   * multipart/form-data;
+   * boundary=...
+   *
+   * The boundary is required by Multer.
+   */
+  if (
+    body !== undefined &&
+    body !== null &&
+    !isFormData &&
+    !requestHeaders['Content-Type']
+  ) {
+    requestHeaders['Content-Type'] =
+      'application/json';
   }
 
   if (token) {
-    requestHeaders.Authorization = `Bearer ${token}`;
+    requestHeaders.Authorization =
+      `Bearer ${token}`;
   }
 
   const config = {
@@ -64,13 +87,27 @@ export async function request(endpoint, options = {}) {
     ...customOptions,
   };
 
-  if (body !== undefined && body !== null) {
-    config.body = typeof body === 'string' ? body : JSON.stringify(body);
+  if (
+    body !== undefined &&
+    body !== null
+  ) {
+    if (isFormData) {
+      config.body = body;
+    } else {
+      config.body =
+        typeof body === 'string'
+          ? body
+          : JSON.stringify(body);
+    }
   }
 
   let response;
+
   try {
-    response = await fetch(url, config);
+    response = await fetch(
+      url,
+      config
+    );
   } catch (networkError) {
     throw new ApiError(
       'Network request failed. Please check server connectivity.',
@@ -80,17 +117,32 @@ export async function request(endpoint, options = {}) {
   }
 
   let responseData = null;
-  const contentType = response.headers.get('content-type');
-  if (contentType && contentType.includes('application/json')) {
+
+  const contentType =
+    response.headers.get(
+      'content-type'
+    );
+
+  if (
+    contentType &&
+    contentType.includes(
+      'application/json'
+    )
+  ) {
     try {
-      responseData = await response.json();
+      responseData =
+        await response.json();
     } catch {
       responseData = null;
     }
   } else {
     try {
-      const text = await response.text();
-      responseData = text ? { raw: text } : null;
+      const text =
+        await response.text();
+
+      responseData = text
+        ? { raw: text }
+        : null;
     } catch {
       responseData = null;
     }
@@ -101,7 +153,12 @@ export async function request(endpoint, options = {}) {
       responseData?.message ||
       responseData?.error ||
       `Request failed with status ${response.status}`;
-    throw new ApiError(errorMessage, response.status, responseData);
+
+    throw new ApiError(
+      errorMessage,
+      response.status,
+      responseData
+    );
   }
 
   return responseData;
@@ -109,10 +166,46 @@ export async function request(endpoint, options = {}) {
 
 export const apiClient = {
   request,
-  get: (endpoint, options = {}) => request(endpoint, { ...options, method: 'GET' }),
-  post: (endpoint, body, options = {}) => request(endpoint, { ...options, method: 'POST', body }),
-  put: (endpoint, body, options = {}) => request(endpoint, { ...options, method: 'PUT', body }),
-  delete: (endpoint, options = {}) => request(endpoint, { ...options, method: 'DELETE' }),
+
+  get: (
+    endpoint,
+    options = {}
+  ) =>
+    request(endpoint, {
+      ...options,
+      method: 'GET',
+    }),
+
+  post: (
+    endpoint,
+    body,
+    options = {}
+  ) =>
+    request(endpoint, {
+      ...options,
+      method: 'POST',
+      body,
+    }),
+
+  put: (
+    endpoint,
+    body,
+    options = {}
+  ) =>
+    request(endpoint, {
+      ...options,
+      method: 'PUT',
+      body,
+    }),
+
+  delete: (
+    endpoint,
+    options = {}
+  ) =>
+    request(endpoint, {
+      ...options,
+      method: 'DELETE',
+    }),
 };
 
 export default apiClient;
