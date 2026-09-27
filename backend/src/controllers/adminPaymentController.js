@@ -88,41 +88,69 @@ const calculateJobPayment = async (client, jobId) => {
 };
 
 const getPayments = async (req, res) => {
-  const client = await pool.connect();
-
   try {
-    const result = await client.query(`
+    const result = await pool.query(`
       SELECT
-        p.id,
-        p.job_id,
-        p.installation_amount,
-        p.normal_visit_amount,
-        p.extra_visit_amount,
-        p.total_amount,
-        p.status,
-        p.paid_at,
+        j.id AS job_id,
         j.order_id,
         j.site_name,
         j.status AS job_status,
-        j.payment_status
-      FROM payments p
-      JOIN jobs j ON j.id = p.job_id
-      ORDER BY p.created_at DESC
+        j.payment_status,
+        p.id AS payment_id,
+        p.status AS payment_record_status,
+        p.paid_at
+      FROM jobs j
+      LEFT JOIN payments p
+        ON p.job_id = j.id
+      WHERE j.payment_status IN ('PAYMENT_PENDING', 'PAID')
+      ORDER BY
+        CASE
+          WHEN j.payment_status = 'PAYMENT_PENDING' THEN 0
+          ELSE 1
+        END,
+        j.created_at DESC
     `);
 
-    return res.status(200).json({
+    const payments = [];
+
+    for (const row of result.rows) {
+      const calculation = await calculateJobPayment(
+        pool,
+        row.job_id
+      );
+
+      payments.push({
+        id: row.payment_id || `job-${row.job_id}`,
+        job_id: row.job_id,
+        order_id: row.order_id,
+        site_name: row.site_name,
+        job_status: row.job_status,
+        payment_status: row.payment_status,
+
+        installation_amount: calculation.installationAmount,
+        normal_visit_amount: calculation.normalVisitAmount,
+        extra_visit_amount: calculation.extraVisitAmount,
+        total_amount: calculation.totalAmount,
+
+        status:
+          row.payment_record_status ||
+          (row.payment_status === 'PAID' ? 'PAID' : 'PENDING'),
+
+        paid_at: row.paid_at || null,
+      });
+    }
+
+    return res.json({
       success: true,
-      data: result.rows,
+      data: payments,
     });
   } catch (error) {
-    console.error('Get payments error:', error);
+    console.error('getPayments error:', error);
 
     return res.status(500).json({
       success: false,
-      message: 'Failed to fetch payments',
+      message: 'Failed to load payments',
     });
-  } finally {
-    client.release();
   }
 };
 
@@ -157,157 +185,28 @@ const getJobPayment = async (req, res) => {
   }
 };
 
-const createPayment = async (req, res) => {
-  const client = await pool.connect();
-
-  try {
-    const { jobId } = req.params;
-
-    await client.query('BEGIN');
-
-    const payment = await calculateJobPayment(client, jobId);
-
-    if (!payment) {
-      await client.query('ROLLBACK');
-
-      return res.status(404).json({
-        success: false,
-        message: 'Job not found',
-      });
-    }
-
-    if (payment.job.status === 'PAID') {
-      await client.query('ROLLBACK');
-
-      return res.status(400).json({
-        success: false,
-        message: 'Job has already been paid',
-      });
-    }
-
-    if (payment.job.status !== 'COMPLETED') {
-      await client.query('ROLLBACK');
-
-      return res.status(400).json({
-        success: false,
-        message: 'Payment can only be created after job completion',
-      });
-    }
-
-    if (payment.job.payment_status !== 'PAYMENT_PENDING') {
-      await client.query('ROLLBACK');
-
-      return res.status(400).json({
-        success: false,
-        message: 'Payment is not ready for this job',
-      });
-    }
-
-    const existingPayment = await client.query(
-      `
-      SELECT id
-      FROM payments
-      WHERE job_id = $1
-      `,
-      [jobId]
-    );
-
-    if (existingPayment.rows.length > 0) {
-      await client.query('ROLLBACK');
-
-      return res.status(400).json({
-        success: false,
-        message: 'Payment record already exists',
-      });
-    }
-
-    const paymentResult = await client.query(
-      `
-      INSERT INTO payments (
-        job_id,
-        installation_amount,
-        normal_visit_amount,
-        extra_visit_amount,
-        total_amount,
-        status
-      )
-      VALUES ($1, $2, $3, $4, $5, 'PENDING')
-      RETURNING *
-      `,
-      [
-        jobId,
-        payment.installationAmount,
-        payment.normalVisitAmount,
-        payment.extraVisitAmount,
-        payment.totalAmount,
-      ]
-    );
-
-    await client.query(
-      `
-      INSERT INTO audit_logs (
-        user_id,
-        action,
-        entity_type,
-        entity_id,
-        old_value,
-        new_value
-      )
-      VALUES ($1, $2, $3, $4, $5, $6)
-      `,
-      [
-        req.user.userId,
-        'CREATE_PAYMENT',
-        'PAYMENT',
-        paymentResult.rows[0].id,
-        null,
-        JSON.stringify(paymentResult.rows[0]),
-      ]
-    );
-
-    await client.query('COMMIT');
-
-    return res.status(201).json({
-      success: true,
-      message: 'Payment record created successfully',
-      data: paymentResult.rows[0],
-    });
-  } catch (error) {
-    await client.query('ROLLBACK');
-
-    console.error('Create payment error:', error);
-
-    return res.status(500).json({
-      success: false,
-      message: 'Failed to create payment',
-    });
-  } finally {
-    client.release();
-  }
-};
-
 const markPaymentPaid = async (req, res) => {
   const client = await pool.connect();
 
   try {
-    const { jobId } = req.params;
-
     await client.query('BEGIN');
 
     const jobResult = await client.query(
       `
       SELECT
         id,
+        order_id,
+        site_name,
         status,
         payment_status
       FROM jobs
       WHERE id = $1
       FOR UPDATE
       `,
-      [jobId]
+      [req.params.jobId]
     );
 
-    if (jobResult.rows.length === 0) {
+    if (!jobResult.rows.length) {
       await client.query('ROLLBACK');
 
       return res.status(404).json({
@@ -318,57 +217,102 @@ const markPaymentPaid = async (req, res) => {
 
     const job = jobResult.rows[0];
 
+    if (job.status !== 'COMPLETED') {
+      await client.query('ROLLBACK');
+
+      return res.status(400).json({
+        success: false,
+        message: 'Only completed jobs can be marked as paid',
+      });
+    }
+
     if (job.payment_status !== 'PAYMENT_PENDING') {
       await client.query('ROLLBACK');
 
       return res.status(400).json({
         success: false,
-        message: 'Job payment is not pending',
+        message: 'Payment is not pending for this job',
       });
     }
 
-    const paymentResult = await client.query(
+    const calculation = await calculateJobPayment(
+      client,
+      job.id
+    );
+
+    const existingPayment = await client.query(
       `
-      SELECT *
+      SELECT id, status
       FROM payments
       WHERE job_id = $1
-      FOR UPDATE
+      LIMIT 1
       `,
-      [jobId]
+      [job.id]
     );
 
-    if (paymentResult.rows.length === 0) {
-      await client.query('ROLLBACK');
+    let payment;
 
-      return res.status(404).json({
-        success: false,
-        message: 'Payment record not found. Create the payment first.',
-      });
+    if (existingPayment.rows.length) {
+      const existing = existingPayment.rows[0];
+
+      if (existing.status === 'PAID') {
+        await client.query('ROLLBACK');
+
+        return res.status(400).json({
+          success: false,
+          message: 'Payment is already marked as paid',
+        });
+      }
+
+      const updateResult = await client.query(
+        `
+        UPDATE payments
+        SET
+          installation_amount = $1,
+          normal_visit_amount = $2,
+          extra_visit_amount = $3,
+          total_amount = $4,
+          status = 'PAID',
+          paid_at = CURRENT_TIMESTAMP
+        WHERE id = $5
+        RETURNING *
+        `,
+        [
+          calculation.installationAmount,
+          calculation.normalVisitAmount,
+          calculation.extraVisitAmount,
+          calculation.totalAmount,
+          existing.id,
+        ]
+      );
+
+      payment = updateResult.rows[0];
+    } else {
+      const insertResult = await client.query(
+        `
+        INSERT INTO payments (
+          job_id,
+          installation_amount,
+          normal_visit_amount,
+          extra_visit_amount,
+          total_amount,
+          status,
+          paid_at
+        )
+        VALUES ($1, $2, $3, $4, $5, 'PAID', CURRENT_TIMESTAMP)
+        RETURNING *
+        `,
+        [
+          job.id,
+          calculation.installationAmount,
+          calculation.normalVisitAmount,
+          calculation.extraVisitAmount,
+          calculation.totalAmount,
+        ]
+      );
+
+      payment = insertResult.rows[0];
     }
-
-    const payment = paymentResult.rows[0];
-
-    if (payment.status === 'PAID') {
-      await client.query('ROLLBACK');
-
-      return res.status(400).json({
-        success: false,
-        message: 'Payment is already marked as paid',
-      });
-    }
-
-    const updatedPaymentResult = await client.query(
-      `
-      UPDATE payments
-      SET
-        status = 'PAID',
-        paid_at = CURRENT_TIMESTAMP,
-        updated_at = CURRENT_TIMESTAMP
-      WHERE id = $1
-      RETURNING *
-      `,
-      [payment.id]
-    );
 
     await client.query(
       `
@@ -379,7 +323,7 @@ const markPaymentPaid = async (req, res) => {
         updated_at = CURRENT_TIMESTAMP
       WHERE id = $1
       `,
-      [jobId]
+      [job.id]
     );
 
     await client.query(
@@ -388,41 +332,29 @@ const markPaymentPaid = async (req, res) => {
         user_id,
         action,
         entity_type,
-        entity_id,
-        old_value,
-        new_value
+        entity_id
       )
-      VALUES ($1, $2, $3, $4, $5, $6)
+      VALUES ($1, $2, $3, $4)
       `,
       [
         req.user.userId,
         'MARK_PAYMENT_PAID',
-        'PAYMENT',
-        payment.id,
-        JSON.stringify({
-          paymentStatus: job.payment_status,
-          jobStatus: job.status,
-          paymentRecordStatus: payment.status,
-        }),
-        JSON.stringify({
-          paymentStatus: 'PAID',
-          jobStatus: 'PAID',
-          paymentRecordStatus: 'PAID',
-        }),
+        'JOB',
+        job.id,
       ]
     );
 
     await client.query('COMMIT');
 
-    return res.status(200).json({
+    return res.json({
       success: true,
       message: 'Payment marked as paid successfully',
-      data: updatedPaymentResult.rows[0],
+      data: payment,
     });
   } catch (error) {
     await client.query('ROLLBACK');
 
-    console.error('Mark payment paid error:', error);
+    console.error('markPaymentPaid error:', error);
 
     return res.status(500).json({
       success: false,
@@ -436,6 +368,5 @@ const markPaymentPaid = async (req, res) => {
 module.exports = {
   getPayments,
   getJobPayment,
-  createPayment,
   markPaymentPaid,
 };

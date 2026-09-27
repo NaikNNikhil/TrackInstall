@@ -144,6 +144,7 @@ const SiteRow = ({ site, navigation }) => {
 
 export function Dashboard({ navigation }) { const { installers, sites, visits, cities } = useAdminData(); const pending = visits.filter((x) => x.status === 'PENDING_APPROVAL'); const cards = [{ label: 'Total Cities', value: cities.length }, { label: 'Total Installers', value: installers.length }, { label: 'Assigned Sites', value: sites.filter((x) => x.status === 'ASSIGNED').length }, { label: 'Completed Sites', value: sites.filter((x) => x.status === 'COMPLETED').length }, { label: 'Pending Approvals', value: pending.length }, { label: 'Pending Payments', value: money(sites.filter((x) => x.paymentStatus === 'PAYMENT_PENDING').reduce((sum, x) => sum + getSiteTotal(x, visits).total, 0)) }]; return <Page><AppHeader greeting="Welcome, Admin" /><Text style={s.title}>Admin Dashboard</Text><Text style={s.subtitle}>Stay on top of installation operations.</Text><View style={styles.grid}>{cards.map((x) => <StatCard key={x.label} {...x} />)}</View><SectionHeader title="Pending Approvals" action="View All" onPress={() => navigation.navigate('Approvals')} />{pending.slice(0, 2).map((v) => { const site = sites.find((x) => x.id === v.siteId); const installer = installers.find((x) => x.id === site.installerId); return <Pressable key={v.id} onPress={() => navigation.navigate('VisitDetails', { visitId: v.id })} style={s.card}><View style={s.row}><Text style={s.cardTitle}>{site.name}</Text><StatusBadge status={v.status} /></View><Text style={s.meta}>{installer.name}  •  Visit {v.number}  •  {v.reason}</Text></Pressable>; })}<SectionHeader title="Recent Sites" action="View Sites" onPress={() => navigation.navigate('Sites')} />{sites.slice(0, 3).map((x) => <SiteRow key={x.id} site={x} navigation={navigation} />)}</Page>; }
 export function MoreScreen({ navigation }) { const { logout: authLogout } = useAuth(); const logout = async () => { if (authLogout) await authLogout(); navigation.getParent('RootStack')?.reset({ index: 0, routes: [{ name: 'AuthFlow' }] }); }; return <Page><AppHeader greeting="Admin tools" /><Text style={s.title}>More</Text>{[['Sites', 'Manage assigned site jobs'], ['Installers', 'Manage your installation team'], ['Visits', 'Review all site visits'], ['Approvals', 'Approve extra visits'], ['Payments', 'Manage site payments']].map(([name, desc]) => <Pressable key={name} style={s.card} onPress={() => navigation.navigate(name)}><Text style={s.cardTitle}>{name}</Text><Text style={s.meta}>{desc}</Text></Pressable>)}<Pressable style={s.card} onPress={logout}><Text style={[s.cardTitle, styles.logout]}>Logout</Text><Text style={s.meta}>Return to Login</Text></Pressable></Page>; }
+
 export function CitiesScreen({ navigation }) {
   const { installers, sites } = useAdminData();
   const { token } = useAuth();
@@ -816,6 +817,7 @@ export function AddInstaller({ navigation }) {
     </Page>
   );
 }
+
 export function EditInstaller({ route, navigation }) { const { installerId } = route.params; const { installers, doorTypes, updateInstaller } = useAdminData(); const installer = installers.find((item) => item.id === installerId); const [charges, setCharges] = useState({ ...installer.charges }); const save = () => { updateInstaller({ ...installer, charges: { ...doorTypes.reduce((all, type) => ({ ...all, [type]: Number(charges[type] || 0) }), {}), visit: Number(charges.visit || 0) } }); Alert.alert('Master charges updated', 'Existing sites keep their saved historical rates. Future assignments use these new rates.'); navigation.goBack(); }; return <Page><Text style={s.title}>Edit Installer Charges</Text><Text style={s.subtitle}>{installer.name} — these are current master charges only.</Text><SectionHeader title="Current Master Charges" />{doorTypes.map((type) => <Field key={type} label={type} value={String(charges[type] || '')} onChangeText={(value) => setCharges((item) => ({ ...item, [type]: value }))} keyboardType="numeric" />)}<Field label="Visiting Charge" value={String(charges.visit || '')} onChangeText={(value) => setCharges((item) => ({ ...item, visit: value }))} keyboardType="numeric" /><Text style={s.meta}>Assigned sites retain their own door and visiting-charge snapshots.</Text><SecondaryButton title="Cancel" onPress={() => navigation.goBack()} /><PrimaryButton title="Save Current Charges" onPress={save} style={styles.actionButton} /></Page>; }
 export function EditInstallerWithCity({ route, navigation }) { const { installerId } = route.params; const { installers, cities, doorTypes, updateInstaller } = useAdminData(); const installer = installers.find((item) => item.id === installerId); const [city, setCity] = useState(installer.city); const [charges, setCharges] = useState({ ...installer.charges }); const save = () => { updateInstaller({ ...installer, city, charges: { ...doorTypes.reduce((all, type) => ({ ...all, [type]: Number(charges[type] || 0) }), {}), visit: Number(charges.visit || 0) } }); Alert.alert('Installer updated', 'City and current master charges have been saved. Existing site snapshots are unchanged.'); navigation.goBack(); }; return <Page><Text style={s.title}>Edit Installer</Text><Text style={s.subtitle}>{installer.name}</Text><Text style={styles.fieldLabel}>City *</Text><FilterChips options={cities} selected={city} onSelect={setCity} /><SectionHeader title="Current Master Charges" />{doorTypes.map((type) => <Field key={type} label={type} value={String(charges[type] || '')} onChangeText={(value) => setCharges((item) => ({ ...item, [type]: value }))} keyboardType="numeric" />)}<Field label="Visiting Charge" value={String(charges.visit || '')} onChangeText={(value) => setCharges((item) => ({ ...item, visit: value }))} keyboardType="numeric" /><Text style={s.meta}>Existing site charges remain historical snapshots.</Text><SecondaryButton title="Cancel" onPress={() => navigation.goBack()} /><PrimaryButton title="Save Installer" onPress={save} style={styles.actionButton} /></Page>; }
 
@@ -2255,11 +2257,828 @@ export function SiteDetails({ route, navigation }) {
   );
 }
 
-export function VisitsScreen({ navigation, route }) { const { visits, sites, installers } = useAdminData(); const [filter, setFilter] = useState('All'); const list = visits.filter((x) => !route.params?.siteId || x.siteId === route.params.siteId).filter((x) => filter === 'All' || (filter === 'Normal' && x.type === 'NORMAL') || (filter === 'Extra' && x.type === 'EXTRA') || (filter === 'Pending' && x.status === 'PENDING_APPROVAL') || (filter === 'Approved' && x.status === 'APPROVED') || (filter === 'Rejected' && x.status === 'REJECTED')); return <Page><Text style={s.title}>Visits</Text><Text style={s.subtitle}>All normal and extra installation visits.</Text><FilterChips options={['All', 'Normal', 'Extra', 'Pending', 'Approved', 'Rejected']} selected={filter} onSelect={setFilter} />{list.length ? list.map((v) => { const site = sites.find((x) => x.id === v.siteId), ins = installers.find((x) => x.id === site.installerId); return <Pressable key={v.id} style={s.card} onPress={() => navigation.navigate('VisitDetails', { visitId: v.id })}><View style={s.row}><Text style={s.cardTitle}>{site.name} • Visit {v.number}</Text><StatusBadge status={v.status} /></View><Text style={s.meta}>{ins.name} • {v.date} • {v.type}</Text><Text style={s.meta}>{v.reason} • Charge {money(site.visitCharge)}</Text></Pressable> }) : <EmptyState text="No visits found." />}</Page>; }
-export function VisitDetails({ route, navigation }) { const { visitId } = route.params; const { visits, sites, installers, updateVisit } = useAdminData(); const v = visits.find((x) => x.id === visitId), site = sites.find((x) => x.id === v.siteId), ins = installers.find((x) => x.id === site.installerId); const decide = (status) => { updateVisit(v.id, status); Alert.alert(status === 'APPROVED' ? 'Visit approved' : 'Visit rejected', 'Local payment totals have been updated.'); navigation.goBack(); }; return <Page><Text style={s.title}>Visit {v.number}</Text><Text style={s.subtitle}>{site.name} • {ins.name}</Text><View style={s.card}><Text style={s.meta}>Date: {v.date}</Text><Text style={s.meta}>Type: {v.type} • Charge: {money(site.visitCharge)}</Text><Text style={s.meta}>Reason: {v.reason}</Text><Text style={s.meta}>Remark: {v.remark}</Text><View style={{ marginTop: spacing.sm }}><StatusBadge status={v.status} /></View></View>{v.status === 'PENDING_APPROVAL' ? <><PrimaryButton title="Approve" onPress={() => decide('APPROVED')} /><SecondaryButton title="Reject" onPress={() => decide('REJECTED')} style={styles.actionButton} /></> : null}</Page>; }
-export function ApprovalsScreen({ navigation }) { const { visits, sites, installers, updateVisit } = useAdminData(); const [tab, setTab] = useState('Pending'); const list = visits.filter((x) => x.type === 'EXTRA' && (tab === 'Pending' ? x.status === 'PENDING_APPROVAL' : x.status === tab.toUpperCase())); return <Page><Text style={s.title}>Extra Visit Approvals</Text><Text style={s.subtitle}>{visits.filter((x) => x.status === 'PENDING_APPROVAL').length} requests awaiting action.</Text><FilterChips options={['Pending', 'Approved', 'Rejected']} selected={tab} onSelect={setTab} />{list.length ? list.map((v) => { const site = sites.find((x) => x.id === v.siteId), ins = installers.find((x) => x.id === site.installerId); return <View key={v.id} style={s.card}><View style={s.row}><Text style={s.cardTitle}>{site.name} • Visit {v.number}</Text><StatusBadge status={v.status} /></View><Text style={s.meta}>{ins.name} • {site.city} • {v.date}</Text><Text style={s.meta}>{v.reason} — {v.remark} • {money(site.visitCharge)}</Text>{v.status === 'PENDING_APPROVAL' ? <View style={styles.buttonRow}><SecondaryButton title="Reject" onPress={() => updateVisit(v.id, 'REJECTED')} style={styles.half} /><PrimaryButton title="Approve" onPress={() => updateVisit(v.id, 'APPROVED')} style={styles.half} /></View> : <Pressable onPress={() => navigation.navigate('VisitDetails', { visitId: v.id })}><Text style={styles.add}>View details</Text></Pressable>}</View> }) : <EmptyState text={`No ${tab.toLowerCase()} extra visit requests.`} />}</Page>; }
-export function PaymentsScreen({ navigation }) { const { sites, installers, visits } = useAdminData(); return <Page><Text style={s.title}>Payments</Text><Text style={s.subtitle}>Job payments include completed normal and approved extra visits.</Text>{sites.map((site) => { const ins = installers.find((x) => x.id === site.installerId), total = getSiteTotal(site, visits); return <Pressable key={site.id} style={s.card} onPress={() => navigation.navigate('PaymentDetails', { siteId: site.id })}><View style={s.row}><Text style={s.cardTitle}>{site.name}</Text><StatusBadge status={site.paymentStatus} /></View><Text style={s.meta}>{ins.name} • {site.city}</Text><Text style={s.meta}>Installation {money(total.installation)} • Visits {money(total.normal + total.extra)}</Text><Text style={styles.total}>{money(total.total)}</Text></Pressable> })}</Page>; }
-export function PaymentDetails({ route }) { const { siteId } = route.params; const { sites, installers, visits, markPaid } = useAdminData(); const site = sites.find((x) => x.id === siteId), ins = installers.find((x) => x.id === site.installerId), total = getSiteTotal(site, visits), sv = visits.filter((x) => x.siteId === siteId); return <Page><Text style={s.title}>Payment Details</Text><Text style={s.subtitle}>{site.name} • {ins.name} • {site.city}</Text><SectionHeader title="Installation Breakdown" />{site.doors.map((x) => <View key={x.type} style={[s.card, s.row]}><Text style={s.cardTitle}>{x.type} × {x.quantity}</Text><Text style={s.meta}>{money(x.charge * x.quantity)}</Text></View>)}<SectionHeader title="Visit Breakdown" /><View style={s.card}><Text style={s.meta}>Normal visits: {sv.filter((x) => x.type === 'NORMAL' && x.status === 'COMPLETED').length}</Text><Text style={s.meta}>Approved extras: {sv.filter((x) => x.status === 'APPROVED').length} • Rejected: {sv.filter((x) => x.status === 'REJECTED').length} • Pending: {sv.filter((x) => x.status === 'PENDING_APPROVAL').length}</Text></View><SectionHeader title="Financial Summary" /><View style={s.card}><Text style={s.meta}>Installation Total: {money(total.installation)}</Text><Text style={s.meta}>Normal Visit Total: {money(total.normal)}</Text><Text style={s.meta}>Approved Extra Visit Total: {money(total.extra)}</Text><Text style={styles.total}>Total Payable: {money(total.total)}</Text><StatusBadge status={site.paymentStatus} /></View>{site.paymentStatus === 'PAYMENT_PENDING' ? <PrimaryButton title="Mark as Paid" onPress={() => { markPaid(site.id); Alert.alert('Payment marked as paid', 'This demo payment is now paid.'); }} /> : null}</Page>; }
+export function VisitsScreen({ navigation, route }) {
+  const { token } = useAuth();
+
+  const [visits, setVisits] = useState([]);
+  const [filter, setFilter] = useState('All');
+  const [loading, setLoading] = useState(true);
+
+  const loadVisits = async () => {
+    try {
+      setLoading(true);
+
+      const response = await apiClient.get(
+        '/admin/visits',
+        { token }
+      );
+
+      setVisits(response?.data || []);
+    } catch (err) {
+      Alert.alert(
+        'Unable to Load Visits',
+        err.message || 'Failed to load visits.'
+      );
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    loadVisits();
+  }, [token]);
+
+  const list = visits
+    .filter(
+      (visit) =>
+        !route.params?.siteId ||
+        visit.job_id === route.params.siteId
+    )
+    .filter(
+      (visit) =>
+        filter === 'All' ||
+        (filter === 'Normal' &&
+          visit.type === 'NORMAL') ||
+        (filter === 'Extra' &&
+          visit.type === 'EXTRA') ||
+        (filter === 'Pending' &&
+          visit.status === 'PENDING_APPROVAL') ||
+        (filter === 'Approved' &&
+          visit.status === 'APPROVED') ||
+        (filter === 'Rejected' &&
+          visit.status === 'REJECTED')
+    );
+
+  if (loading) {
+    return (
+      <Page>
+        <Text style={s.title}>Visits</Text>
+        <Text>Loading visits...</Text>
+      </Page>
+    );
+  }
+
+  return (
+    <Page>
+      <Text style={s.title}>Visits</Text>
+
+      <Text style={s.subtitle}>
+        All normal and extra installation visits.
+      </Text>
+
+      <FilterChips
+        options={[
+          'All',
+          'Normal',
+          'Extra',
+          'Pending',
+          'Approved',
+          'Rejected',
+        ]}
+        selected={filter}
+        onSelect={setFilter}
+      />
+
+      {list.length ? (
+        list.map((visit) => (
+          <Pressable
+            key={visit.id}
+            style={s.card}
+            onPress={() =>
+              navigation.navigate(
+                'VisitDetails',
+                {
+                  visit,
+                }
+              )
+            }
+          >
+            <View style={s.row}>
+              <Text style={s.cardTitle}>
+                {visit.site_name ||
+                  'Installation Site'}{' '}
+                • Visit {visit.visit_number}
+              </Text>
+
+              <StatusBadge
+                status={visit.status}
+              />
+            </View>
+
+            <Text style={s.meta}>
+              {visit.installer_name ||
+                'Installer'}{' '}
+              • {visit.visit_date} •{' '}
+              {visit.type}
+            </Text>
+
+            <Text style={s.meta}>
+              {visit.reason ||
+                'No reason provided'}{' '}
+              • Charge{' '}
+              {money(
+                Number(
+                  visit.visiting_charge_snapshot ||
+                    0
+                )
+              )}
+            </Text>
+          </Pressable>
+        ))
+      ) : (
+        <EmptyState text="No visits found." />
+      )}
+    </Page>
+  );
+}
+
+export function VisitDetails({ route, navigation }) {
+  const { token } = useAuth();
+  const visit = route.params?.visit;
+
+  const [currentVisit, setCurrentVisit] =
+    useState(visit || null);
+  const [saving, setSaving] = useState(false);
+
+  if (!currentVisit) {
+    return (
+      <Page>
+        <Text style={s.title}>
+          Visit Details
+        </Text>
+
+        <Text style={styles.error}>
+          Visit details not found.
+        </Text>
+      </Page>
+    );
+  }
+
+  const decide = async (status) => {
+    try {
+      setSaving(true);
+
+      const response = await apiClient.put(
+        `/admin/visits/${currentVisit.id}/status`,
+        {
+          status,
+        },
+        { token }
+      );
+
+      setCurrentVisit(
+        response?.data?.visit || {
+          ...currentVisit,
+          status,
+        }
+      );
+
+      Alert.alert(
+        status === 'APPROVED'
+          ? 'Visit Approved'
+          : 'Visit Rejected',
+        status === 'APPROVED'
+          ? 'The extra visit has been approved.'
+          : 'The extra visit has been rejected.',
+        [
+          {
+            text: 'OK',
+            onPress: () => navigation.goBack(),
+          },
+        ]
+      );
+    } catch (err) {
+      Alert.alert(
+        'Unable to Update Visit',
+        err.message ||
+          'Failed to update visit status.'
+      );
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <Page>
+      <Text style={s.title}>
+        Visit {currentVisit.visit_number}
+      </Text>
+
+      <Text style={s.subtitle}>
+        {currentVisit.site_name ||
+          'Installation Site'}{' '}
+        •{' '}
+        {currentVisit.installer_name ||
+          'Installer'}
+      </Text>
+
+      <View style={s.card}>
+        <Text style={s.meta}>
+          Date: {currentVisit.visit_date}
+        </Text>
+
+        <Text style={s.meta}>
+          Type: {currentVisit.type}
+        </Text>
+
+        <Text style={s.meta}>
+          Charge:{' '}
+          {money(
+            Number(
+              currentVisit.visiting_charge_snapshot ||
+                0
+            )
+          )}
+        </Text>
+
+        <Text style={s.meta}>
+          Reason:{' '}
+          {currentVisit.reason ||
+            'No reason provided'}
+        </Text>
+
+        <Text style={s.meta}>
+          Remark:{' '}
+          {currentVisit.remark ||
+            'No remark'}
+        </Text>
+
+        <View
+          style={{
+            marginTop: spacing.sm,
+          }}
+        >
+          <StatusBadge
+            status={currentVisit.status}
+          />
+        </View>
+      </View>
+
+      {currentVisit.status ===
+        'PENDING_APPROVAL' ? (
+        <>
+          <PrimaryButton
+            title={
+              saving
+                ? 'Approving...'
+                : 'Approve'
+            }
+            onPress={() =>
+              decide('APPROVED')
+            }
+            disabled={saving}
+          />
+
+          <SecondaryButton
+            title={
+              saving
+                ? 'Please wait...'
+                : 'Reject'
+            }
+            onPress={() =>
+              decide('REJECTED')
+            }
+            disabled={saving}
+            style={styles.actionButton}
+          />
+        </>
+      ) : null}
+    </Page>
+  );
+}
+
+export function ApprovalsScreen({ navigation }) {
+  const { token } = useAuth();
+
+  const [visits, setVisits] = useState([]);
+  const [tab, setTab] = useState('Pending');
+  const [loading, setLoading] = useState(true);
+  const [savingId, setSavingId] = useState(null);
+
+  const loadVisits = async () => {
+    try {
+      setLoading(true);
+
+      const response = await apiClient.get(
+        '/admin/visits',
+        { token }
+      );
+
+      setVisits(response?.data || []);
+    } catch (err) {
+      Alert.alert(
+        'Unable to Load Approvals',
+        err.message || 'Failed to load visit approvals.'
+      );
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useFocusEffect(
+    useCallback(() => {
+      loadVisits();
+    }, [token])
+  );
+
+  const decide = async (visitId, status) => {
+    try {
+      setSavingId(visitId);
+
+      await apiClient.put(
+        `/admin/visits/${visitId}/status`,
+        {
+          status,
+        },
+        { token }
+      );
+
+      await loadVisits();
+
+      Alert.alert(
+        status === 'APPROVED'
+          ? 'Visit Approved'
+          : 'Visit Rejected',
+        status === 'APPROVED'
+          ? 'The extra visit has been approved.'
+          : 'The extra visit has been rejected.'
+      );
+    } catch (err) {
+      Alert.alert(
+        'Unable to Update Visit',
+        err.message || 'Failed to update visit status.'
+      );
+    } finally {
+      setSavingId(null);
+    }
+  };
+
+  const list = visits.filter(
+    (visit) =>
+      visit.type === 'EXTRA' &&
+      (
+        (tab === 'Pending' &&
+          visit.status === 'PENDING_APPROVAL') ||
+        (tab === 'Approved' &&
+          visit.status === 'APPROVED') ||
+        (tab === 'Rejected' &&
+          visit.status === 'REJECTED')
+      )
+  );
+
+  const pendingCount = visits.filter(
+    (visit) =>
+      visit.type === 'EXTRA' &&
+      visit.status === 'PENDING_APPROVAL'
+  ).length;
+
+  if (loading) {
+    return (
+      <Page>
+        <Text style={s.title}>Extra Visit Approvals</Text>
+        <Text>Loading approvals...</Text>
+      </Page>
+    );
+  }
+
+  return (
+    <Page>
+      <Text style={s.title}>Extra Visit Approvals</Text>
+
+      <Text style={s.subtitle}>
+        {pendingCount} requests awaiting action.
+      </Text>
+
+      <FilterChips
+        options={['Pending', 'Approved', 'Rejected']}
+        selected={tab}
+        onSelect={setTab}
+      />
+
+      {list.length ? (
+        list.map((visit) => (
+          <View
+            key={visit.id}
+            style={s.card}
+          >
+            <View style={s.row}>
+              <Text style={s.cardTitle}>
+                {visit.site_name || 'Installation Site'} • Visit{' '}
+                {visit.visit_number}
+              </Text>
+
+              <StatusBadge status={visit.status} />
+            </View>
+
+            <Text style={s.meta}>
+              {visit.installer_name || 'Installer'} •{' '}
+              {visit.visit_date}
+            </Text>
+
+            <Text style={s.meta}>
+              {visit.reason || 'No reason provided'}
+            </Text>
+
+            <Text style={s.meta}>
+              {visit.remark || 'No remark'}
+            </Text>
+
+            <Text style={s.meta}>
+              Charge:{' '}
+              {money(
+                Number(
+                  visit.visiting_charge_snapshot || 0
+                )
+              )}
+            </Text>
+
+            {visit.status === 'PENDING_APPROVAL' ? (
+              <View style={styles.buttonRow}>
+                <SecondaryButton
+                  title={
+                    savingId === visit.id
+                      ? 'Please wait...'
+                      : 'Reject'
+                  }
+                  onPress={() =>
+                    decide(
+                      visit.id,
+                      'REJECTED'
+                    )
+                  }
+                  disabled={savingId !== null}
+                  style={styles.half}
+                />
+
+                <PrimaryButton
+                  title={
+                    savingId === visit.id
+                      ? 'Please wait...'
+                      : 'Approve'
+                  }
+                  onPress={() =>
+                    decide(
+                      visit.id,
+                      'APPROVED'
+                    )
+                  }
+                  disabled={savingId !== null}
+                  style={styles.half}
+                />
+              </View>
+            ) : (
+              <Pressable
+                onPress={() =>
+                  navigation.navigate(
+                    'VisitDetails',
+                    { visit }
+                  )
+                }
+              >
+                <Text style={styles.add}>
+                  View details
+                </Text>
+              </Pressable>
+            )}
+          </View>
+        ))
+      ) : (
+        <EmptyState
+          text={`No ${tab.toLowerCase()} extra visit requests.`}
+        />
+      )}
+    </Page>
+  );
+}
+
+export function PaymentsScreen({ navigation }) {
+  const { token } = useAuth();
+
+  const [payments, setPayments] = useState([]);
+  const [filter, setFilter] = useState('All');
+  const [loading, setLoading] = useState(true);
+
+  const loadPayments = async () => {
+    try {
+      setLoading(true);
+
+      const response = await apiClient.get(
+        '/admin/payments',
+        { token }
+      );
+
+      setPayments(response?.data || []);
+    } catch (err) {
+      Alert.alert(
+        'Unable to Load Payments',
+        err.message || 'Failed to load payments.'
+      );
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useFocusEffect(
+    useCallback(() => {
+      loadPayments();
+    }, [token])
+  );
+
+  const list = payments.filter((payment) => {
+    if (filter === 'All') return true;
+
+    if (filter === 'Pending') {
+      return payment.status === 'PENDING';
+    }
+
+    if (filter === 'Paid') {
+      return payment.status === 'PAID';
+    }
+
+    return true;
+  });
+
+  if (loading) {
+    return (
+      <Page>
+        <Text style={s.title}>Payments</Text>
+        <Text>Loading payments...</Text>
+      </Page>
+    );
+  }
+
+  return (
+    <Page>
+      <Text style={s.title}>Payments</Text>
+
+      <Text style={s.subtitle}>
+        Manage installation payments.
+      </Text>
+
+      <FilterChips
+        options={['All', 'Pending', 'Paid']}
+        selected={filter}
+        onSelect={setFilter}
+      />
+
+      {list.length ? (
+        list.map((payment) => (
+          <Pressable
+            key={payment.id}
+            style={s.card}
+            onPress={() =>
+              navigation.navigate('PaymentDetails', {
+                payment,
+              })
+            }
+          >
+            <View style={s.row}>
+              <Text style={s.cardTitle}>
+                {payment.site_name || 'Installation Site'}
+              </Text>
+
+              <StatusBadge
+                status={payment.status}
+              />
+            </View>
+
+            <Text style={s.meta}>
+              {payment.order_id || 'No Order ID'}
+            </Text>
+
+            <Text style={s.meta}>
+              Installation:{' '}
+              {money(
+                Number(
+                  payment.installation_amount || 0
+                )
+              )}
+            </Text>
+
+            <Text style={s.meta}>
+              Normal Visits:{' '}
+              {money(
+                Number(
+                  payment.normal_visit_amount || 0
+                )
+              )}
+            </Text>
+
+            <Text style={s.meta}>
+              Extra Visits:{' '}
+              {money(
+                Number(
+                  payment.extra_visit_amount || 0
+                )
+              )}
+            </Text>
+
+            <Text style={styles.total}>
+              Total: {money(
+                Number(payment.total_amount || 0)
+              )}
+            </Text>
+          </Pressable>
+        ))
+      ) : (
+        <EmptyState text="No payments found." />
+      )}
+    </Page>
+  );
+}
+
+export function PaymentDetails({ route, navigation }) {
+  const { token } = useAuth();
+
+  const payment = route.params?.payment;
+
+  const [details, setDetails] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+
+  const loadPayment = async () => {
+    if (!payment?.job_id) {
+      setLoading(false);
+      return;
+    }
+
+    try {
+      setLoading(true);
+
+      const response = await apiClient.get(
+        `/admin/payments/jobs/${payment.job_id}`,
+        { token }
+      );
+
+      setDetails(response?.data || null);
+    } catch (err) {
+      Alert.alert(
+        'Unable to Load Payment',
+        err.message || 'Failed to load payment details.'
+      );
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    loadPayment();
+  }, [token, payment?.job_id]);
+
+  const markPaid = async () => {
+    try {
+      setSaving(true);
+
+      const response = await apiClient.post(
+        `/admin/payments/jobs/${payment.job_id}/mark-paid`,
+        {},
+        { token }
+      );
+
+      Alert.alert(
+        'Payment Marked as Paid',
+        'Payment has been marked as paid successfully.',
+        [
+          {
+            text: 'OK',
+            onPress: () => {
+              navigation.goBack();
+            },
+          },
+        ]
+      );
+
+      setDetails((current) => ({
+        ...(current || {}),
+        payment: response?.data || null,
+      }));
+    } catch (err) {
+      Alert.alert(
+        'Unable to Mark Payment',
+        err.message || 'Failed to mark payment as paid.'
+      );
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  if (loading) {
+    return (
+      <Page>
+        <Text style={s.title}>Payment Details</Text>
+        <Text>Loading payment...</Text>
+      </Page>
+    );
+  }
+
+  if (!details) {
+    return (
+      <Page>
+        <Text style={s.title}>Payment Details</Text>
+
+        <EmptyState text="Payment details not found." />
+      </Page>
+    );
+  }
+
+  const job = details.job;
+
+  const installationAmount = Number(
+    details.installationAmount || 0
+  );
+
+  const normalVisitAmount = Number(
+    details.normalVisitAmount || 0
+  );
+
+  const extraVisitAmount = Number(
+    details.extraVisitAmount || 0
+  );
+
+  const totalAmount = Number(
+    details.totalAmount || 0
+  );
+
+  const existingPayment =
+    details.payment ||
+    payment;
+
+  const paymentStatus =
+    job?.payment_status ||
+    existingPayment?.status ||
+    'NOT_READY';
+
+  return (
+    <Page>
+      <Text style={s.title}>
+        Payment Details
+      </Text>
+
+      <Text style={s.subtitle}>
+        {job?.site_name || payment?.site_name}
+      </Text>
+
+      <View style={s.card}>
+        <Text style={s.cardTitle}>
+          {job?.order_id || payment?.order_id}
+        </Text>
+
+        <Text style={s.meta}>
+          Job Status: {job?.status || payment?.job_status}
+        </Text>
+
+        <Text style={s.meta}>
+          Payment Status:{' '}
+          {job?.payment_status ||
+            payment?.payment_status ||
+            'NOT_READY'}
+        </Text>
+      </View>
+
+      <SectionHeader title="Payment Breakdown" />
+
+      <View style={s.card}>
+        <Text style={s.meta}>
+          Installation:{' '}
+          {money(installationAmount)}
+        </Text>
+
+        <Text style={s.meta}>
+          Normal Visits:{' '}
+          {money(normalVisitAmount)}
+        </Text>
+
+        <Text style={s.meta}>
+          Approved Extra Visits:{' '}
+          {money(extraVisitAmount)}
+        </Text>
+
+        <Text style={styles.total}>
+          Total Payable:{' '}
+          {money(totalAmount)}
+        </Text>
+
+        <View style={{ marginTop: spacing.sm }}>
+          <StatusBadge status={paymentStatus} />
+        </View>
+      </View>
+
+      {job?.status === 'COMPLETED' &&
+      job?.payment_status === 'PAYMENT_PENDING' ?(
+        <PrimaryButton
+          title={
+            saving
+              ? 'Marking Paid...'
+              : 'Mark as Paid'
+          }
+          onPress={markPaid}
+          disabled={saving}
+        />
+      ) : null}
+    </Page>
+  );
+}
+
 export function AssignNewSiteDropdown({ navigation }) { const { installers, cities, doorTypes, saveSite } = useAdminData(); const [form, setForm] = useState({ name: '', orderId: '', customer: '', contact: '', address: '', city: '', installerId: '', expectedVisits: '', visitCharge: '', doors: [{ type: '', quantity: '', charge: '' }], orderFile: null, status: 'ASSIGNED' }); const [errors, setErrors] = useState({}); const availableInstallers = installers.filter((item) => item.status === 'ACTIVE' && item.city === form.city); const installer = installers.find((item) => item.id === form.installerId); const usedTypes = form.doors.map((item) => item.type).filter(Boolean); const availableDoorTypes = doorTypes.filter((type) => !usedTypes.includes(type)); const installation = form.doors.reduce((sum, item) => sum + Number(item.quantity || 0) * Number(item.charge || 0), 0); const visitTotal = Number(form.expectedVisits || 0) * Number(form.visitCharge || 0); const updateDoor = (index, changes) => setForm((item) => ({ ...item, doors: item.doors.map((door, i) => i === index ? { ...door, ...changes } : door) })); const chooseCity = (city) => { setForm((item) => ({ ...item, city, installerId: '', visitCharge: '', doors: item.doors.map((door) => ({ ...door, charge: '' })) })); setErrors((item) => ({ ...item, city: null, installer: null })); }; const chooseInstaller = (name) => { const selected = availableInstallers.find((item) => item.name === name); setForm((item) => ({ ...item, installerId: selected.id, visitCharge: String(selected.charges.visit), doors: item.doors.map((door) => ({ ...door, charge: door.type ? String(selected.charges[door.type]) : '' })) })); setErrors((item) => ({ ...item, installer: null })); }; const chooseDoor = (index, type) => { if (!installer) return; updateDoor(index, { type, charge: String(installer.charges[type]) }); setErrors((item) => ({ ...item, doors: null })); }; const save = () => { const nextErrors = {}; if (!form.city) nextErrors.city = 'Select a city.'; if (!form.installerId) nextErrors.installer = 'Select an installer.'; if (form.doors.some((item) => !item.type || Number(item.quantity) <= 0)) nextErrors.doors = 'Select each door type and enter a quantity.'; if (Number(form.expectedVisits) <= 0) nextErrors.visits = 'Enter expected visits.'; if (!form.name || !form.orderId || !form.customer || !form.contact || !form.address) nextErrors.details = 'Complete all site information.'; setErrors(nextErrors); if (Object.keys(nextErrors).length) { Alert.alert('Complete required fields', 'Review the highlighted assignment fields.'); return; } const saved = saveSite({ ...form, expectedVisits: Number(form.expectedVisits), visitCharge: Number(form.visitCharge), doors: form.doors.map((door) => ({ ...door, quantity: Number(door.quantity), charge: Number(door.charge) })) }); Alert.alert('Site assigned', 'Current installer rates were stored as this job’s historical snapshot.'); navigation.replace('SiteDetails', { siteId: saved.id }); }; return <Page><Text style={s.title}>Assign New Site</Text><Text style={s.subtitle}>Select a city and installer, then capture today’s rates into this job.</Text><SectionHeader title="Site Information" />{[['name', 'Site Name'], ['orderId', 'Order ID'], ['customer', 'Customer Name'], ['contact', 'Customer Contact'], ['address', 'Site Address']].map(([key, label]) => <Field key={key} label={label} value={form[key]} onChangeText={(value) => setForm((item) => ({ ...item, [key]: value }))} />)}{errors.details ? <Text style={styles.error}>{errors.details}</Text> : null}<SectionHeader title="Assignment" /><SelectField label="City" value={form.city} placeholder="Select City" options={cities} onSelect={chooseCity} error={errors.city} /><SelectField label="Installer" value={installer?.name} placeholder={form.city ? 'Select Installer' : 'Select City first'} options={availableInstallers.map((item) => item.name)} onSelect={chooseInstaller} disabled={!form.city || !availableInstallers.length} error={errors.installer} />{form.city && !availableInstallers.length ? <Text style={styles.error}>No installers available in this city.</Text> : null}{installer ? <View style={s.card}><Text style={s.cardTitle}>{installer.name}</Text><Text style={s.meta}>{installer.phone} • {installer.city}</Text><Text style={s.meta}>Current visiting charge: {money(installer.charges.visit)}</Text></View> : null}<SectionHeader title="Door Details" />{form.doors.map((door, index) => { const options = doorTypes.filter((type) => type === door.type || !usedTypes.includes(type)); return <View key={index} style={s.card}><Text style={s.cardTitle}>Door Item {index + 1}</Text><SelectField label="Door Type" value={door.type} placeholder="Select Door Type" options={options} onSelect={(type) => chooseDoor(index, type)} disabled={!installer} error={errors.doors} /><Field label="Quantity" value={String(door.quantity)} onChangeText={(quantity) => updateDoor(index, { quantity })} keyboardType="numeric" /><Field label="Installation Charge" value={String(door.charge)} onChangeText={(charge) => updateDoor(index, { charge })} keyboardType="numeric" /><Text style={styles.total}>Total: {money(Number(door.quantity || 0) * Number(door.charge || 0))}</Text>{form.doors.length > 1 ? <Pressable onPress={() => setForm((item) => ({ ...item, doors: item.doors.filter((_, i) => i !== index) }))}><Text style={styles.remove}>Remove door type</Text></Pressable> : null}</View> })}{installer && availableDoorTypes.length ? <Pressable onPress={() => setForm((item) => ({ ...item, doors: [...item.doors, { type: '', quantity: '', charge: '' }] }))}><Text style={styles.add}>+ Add Door Type</Text></Pressable> : null}<SectionHeader title="Visit Details" /><Field label="Expected Visit Count" value={String(form.expectedVisits)} onChangeText={(expectedVisits) => setForm((item) => ({ ...item, expectedVisits }))} keyboardType="numeric" />{errors.visits ? <Text style={styles.error}>{errors.visits}</Text> : null}<Field label="Visiting Charge" value={String(form.visitCharge)} onChangeText={(visitCharge) => setForm((item) => ({ ...item, visitCharge }))} keyboardType="numeric" /><SectionHeader title="Order Form" /><View style={s.card}><Pressable onPress={() => setForm((item) => ({ ...item, orderFile: item.orderFile ? 'order_form.xlsx' : 'order_form.pdf' }))}><Text style={styles.add}>{form.orderFile ? `Selected: ${form.orderFile}` : 'Upload / Select Order Form (mock)'}</Text></Pressable></View><SectionHeader title="Financial Summary" /><View style={s.card}><Text style={s.meta}>Installation Total: {money(installation)}</Text><Text style={s.meta}>Expected Visit Cost: {money(visitTotal)}</Text><Text style={styles.total}>Estimated Job Total: {money(installation + visitTotal)}</Text></View><SecondaryButton title="Cancel" onPress={() => navigation.goBack()} /><PrimaryButton title="Assign Site" onPress={save} style={styles.actionButton} /></Page>; }
 
 const styles = StyleSheet.create({ grid: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between', rowGap: spacing.md, marginTop: spacing.lg }, add: { ...typography.label, color: colors.primary }, field: { marginTop: spacing.md }, fieldLabel: { ...typography.label, color: colors.text, marginTop: spacing.md }, input: { height: 50, borderWidth: 1, borderColor: colors.border, borderRadius: 12, backgroundColor: colors.surface, paddingHorizontal: spacing.md, color: colors.text, marginTop: spacing.xs }, select: { minHeight: 50, marginTop: spacing.xs, borderWidth: 1, borderColor: colors.border, borderRadius: 12, backgroundColor: colors.surface, paddingHorizontal: spacing.md, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }, selectDisabled: { backgroundColor: '#EEF1F3' }, selectError: { borderColor: '#B42318' }, selectText: { ...typography.body, color: colors.text }, placeholder: { color: colors.textSecondary }, chevron: { ...typography.heading, color: colors.primary }, error: { ...typography.caption, color: '#B42318', marginTop: spacing.xs }, modalOverlay: { flex: 1, backgroundColor: 'rgba(23,33,43,0.35)', justifyContent: 'center', padding: spacing.lg }, modalCard: { backgroundColor: colors.surface, borderRadius: 12, overflow: 'hidden' }, option: { paddingHorizontal: spacing.lg, paddingVertical: spacing.md, borderBottomWidth: 1, borderBottomColor: colors.border }, optionText: { ...typography.body, color: colors.text }, actionButton: { marginTop: spacing.sm }, remove: { ...typography.caption, color: '#B42318' }, total: { ...typography.heading, color: colors.primary, marginTop: spacing.sm }, buttonRow: { flexDirection: 'row', gap: spacing.sm, marginTop: spacing.md }, half: { flex: 1 }, logout: { color: '#B42318' } });
