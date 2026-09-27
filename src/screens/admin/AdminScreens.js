@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Alert, Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View, Linking } from 'react-native';
+import { Alert, ActivityIndicator, Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View, Linking } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
 import AppHeader from '../../components/AppHeader';
 import PrimaryButton from '../../components/PrimaryButton';
@@ -430,7 +430,68 @@ export function Dashboard({ navigation }) {
   );
 }
 
-export function MoreScreen({ navigation }) { const { logout: authLogout } = useAuth(); const logout = async () => { if (authLogout) await authLogout(); navigation.getParent('RootStack')?.reset({ index: 0, routes: [{ name: 'AuthFlow' }] }); }; return <Page><AppHeader greeting="Admin tools" /><Text style={s.title}>More</Text>{[['Sites', 'Manage assigned site jobs'], ['Installers', 'Manage your installation team'], ['Visits', 'Review all site visits'], ['Approvals', 'Approve extra visits'], ['Payments', 'Manage site payments']].map(([name, desc]) => <Pressable key={name} style={s.card} onPress={() => navigation.navigate(name)}><Text style={s.cardTitle}>{name}</Text><Text style={s.meta}>{desc}</Text></Pressable>)}<Pressable style={s.card} onPress={logout}><Text style={[s.cardTitle, styles.logout]}>Logout</Text><Text style={s.meta}>Return to Login</Text></Pressable></Page>; }
+export function MoreScreen({ navigation }) {
+  const {
+    logout: authLogout,
+    role,
+  } = useAuth();
+
+  const logout = async () => {
+    if (authLogout) await authLogout();
+
+    navigation.getParent('RootStack')?.reset({
+      index: 0,
+      routes: [{ name: 'AuthFlow' }],
+    });
+  };
+
+  const menuItems = [
+    ['Sites', 'Manage assigned site jobs'],
+    ['Installers', 'Manage your installation team'],
+    ['Visits', 'Review all site visits'],
+    ['Approvals', 'Approve extra visits'],
+    ['Payments', 'Manage site payments'],
+  ];
+
+  if (role === 'SUPER_ADMIN') {
+    menuItems.push([
+      'Admins',
+      'Manage admin accounts',
+    ]);
+  }
+
+  return (
+    <Page>
+      <AppHeader greeting="Admin tools" />
+
+      <Text style={s.title}>More</Text>
+
+      {menuItems.map(([name, desc]) => (
+        <Pressable
+          key={name}
+          style={s.card}
+          onPress={() => navigation.navigate(name)}
+        >
+          <Text style={s.cardTitle}>{name}</Text>
+          <Text style={s.meta}>{desc}</Text>
+        </Pressable>
+      ))}
+
+      <Pressable
+        style={s.card}
+        onPress={logout}
+      >
+        <Text style={[s.cardTitle, styles.logout]}>
+          Logout
+        </Text>
+
+        <Text style={s.meta}>
+          Return to Login
+        </Text>
+      </Pressable>
+    </Page>
+  );
+}
 
 export function CitiesScreen({ navigation }) {
   const { token } = useAuth();
@@ -3831,6 +3892,338 @@ export function PaymentDetails({ route, navigation }) {
           disabled={saving}
         />
       ) : null}
+    </Page>
+  );
+}
+
+export function AdminsScreen({ navigation }) {
+  const { token } = useAuth();
+
+  const [admins, setAdmins] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [showAddForm, setShowAddForm] = useState(false);
+  const [saving, setSaving] = useState(false);
+
+  const [form, setForm] = useState({
+    name: '',
+    phoneNumber: '',
+    email: '',
+  });
+
+  const loadAdmins = async () => {
+    try {
+      setLoading(true);
+
+      const response = await apiClient.get(
+        '/admin/admins',
+        { token }
+      );
+
+      if (Array.isArray(response?.data)) {
+        setAdmins(response.data);
+      } else {
+        setAdmins([]);
+      }
+    } catch (error) {
+      console.error(
+        'Load admins error:',
+        error
+      );
+
+      Alert.alert(
+        'Load Admins Error',
+        error?.message ||
+          'Failed to load admins.'
+      );
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    loadAdmins();
+  }, [token]);
+
+  const updateForm = (field, value) => {
+    setForm((current) => ({
+      ...current,
+      [field]: value,
+    }));
+  };
+
+  const resetForm = () => {
+    setForm({
+      name: '',
+      phoneNumber: '',
+      email: '',
+    });
+  };
+
+  const createAdmin = async () => {
+    const name = form.name.trim();
+    const phoneNumber =
+      form.phoneNumber.trim();
+    const email = form.email.trim();
+
+    if (!name || !phoneNumber) {
+      Alert.alert(
+        'Required Fields',
+        'Name and phone number are required.'
+      );
+      return;
+    }
+
+    try {
+      setSaving(true);
+
+      const response = await apiClient.post(
+        '/admin/admins',
+        {
+          name,
+          phoneNumber,
+          email: email || null,
+        },
+        { token }
+      );
+
+      const activationToken =
+        response?.activationToken;
+
+      resetForm();
+      setShowAddForm(false);
+
+      await loadAdmins();
+
+      if (activationToken) {
+        Alert.alert(
+          'Admin Created',
+          `${name} has been created successfully.\n\n` +
+            `Activation Code:\n${activationToken}\n\n` +
+            `This code expires in 24 hours.`
+        );
+      } else {
+        Alert.alert(
+          'Admin Created',
+          `${name} has been created successfully.`
+        );
+      }
+    } catch (error) {
+      console.error(
+        'Create admin error:',
+        error
+      );
+
+      Alert.alert(
+        'Unable to Create Admin',
+        error?.message ||
+          'Failed to create admin.'
+      );
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const changeAdminStatus = async (admin) => {
+    const isDeactivating =
+      admin.is_active;
+
+    Alert.alert(
+      isDeactivating
+        ? 'Deactivate Admin'
+        : 'Reactivate Admin',
+      `Are you sure you want to ${
+        isDeactivating
+          ? 'deactivate'
+          : 'reactivate'
+      } ${admin.name}?`,
+      [
+        {
+          text: 'Cancel',
+          style: 'cancel',
+        },
+        {
+          text: isDeactivating
+            ? 'Deactivate'
+            : 'Reactivate',
+          onPress: async () => {
+            try {
+              const endpoint =
+                `/admin/admins/${admin.id}/${
+                  isDeactivating
+                    ? 'deactivate'
+                    : 'reactivate'
+                }`;
+
+              await apiClient.patch(
+                endpoint,
+                {},
+                { token }
+              );
+
+              await loadAdmins();
+            } catch (error) {
+              Alert.alert(
+                'Unable to Update Admin',
+                error?.message ||
+                  'Failed to update admin status.'
+              );
+            }
+          },
+        },
+      ]
+    );
+  };
+
+  return (
+    <Page>
+      <View style={s.row}>
+        <View>
+          <Text style={s.title}>
+            Admins
+          </Text>
+
+          <Text style={s.subtitle}>
+            Manage administrator accounts.
+          </Text>
+        </View>
+
+        <Pressable
+          onPress={() =>
+            setShowAddForm(
+              (current) => !current
+            )
+          }
+        >
+          <Text style={styles.add}>
+            {showAddForm
+              ? 'Cancel'
+              : '+ Add Admin'}
+          </Text>
+        </Pressable>
+      </View>
+
+      {showAddForm ? (
+        <View style={s.card}>
+          <Text style={s.cardTitle}>
+            Add Admin
+          </Text>
+
+          <Field
+            label="Full Name"
+            value={form.name}
+            onChangeText={(value) =>
+              updateForm('name', value)
+            }
+          />
+
+          <Field
+            label="Phone Number"
+            value={form.phoneNumber}
+            onChangeText={(value) =>
+              updateForm(
+                'phoneNumber',
+                value
+              )
+            }
+            keyboardType="phone-pad"
+          />
+
+          <Field
+            label="Email"
+            value={form.email}
+            onChangeText={(value) =>
+              updateForm('email', value)
+            }
+            keyboardType="email-address"
+          />
+
+          <PrimaryButton
+            title={
+              saving
+                ? 'Creating...'
+                : 'Create Admin'
+            }
+            onPress={createAdmin}
+            disabled={saving}
+            style={styles.actionButton}
+          />
+        </View>
+      ) : null}
+
+      <SectionHeader title="Admin Accounts" />
+
+      {loading ? (
+        <View
+          style={{
+            paddingVertical: 30,
+          }}
+        >
+          <ActivityIndicator
+            size="large"
+            color={colors.primary}
+          />
+        </View>
+      ) : admins.length === 0 ? (
+        <Text style={s.meta}>
+          No admins found.
+        </Text>
+      ) : (
+        admins.map((admin) => (
+          <View
+            key={admin.id}
+            style={s.card}
+          >
+            <View style={s.row}>
+              <Text style={s.cardTitle}>
+                {admin.name}
+              </Text>
+
+              <StatusBadge
+                status={
+                  admin.is_active
+                    ? 'ACTIVE'
+                    : 'INACTIVE'
+                }
+              />
+            </View>
+
+            <Text style={s.meta}>
+              {admin.phone_number}
+            </Text>
+
+            {admin.email ? (
+              <Text style={s.meta}>
+                {admin.email}
+              </Text>
+            ) : null}
+
+            <Text style={s.meta}>
+              Role: {admin.role}
+            </Text>
+
+            {admin.role === 'ADMIN' ? (
+              <Pressable
+                onPress={() =>
+                  changeAdminStatus(admin)
+                }
+                style={
+                  s.activationButton
+                }
+              >
+                <Text
+                  style={
+                    s.activationButtonText
+                  }
+                >
+                  {admin.is_active
+                    ? 'Deactivate Admin'
+                    : 'Reactivate Admin'}
+                </Text>
+              </Pressable>
+            ) : null}
+          </View>
+        ))
+      )}
     </Page>
   );
 }

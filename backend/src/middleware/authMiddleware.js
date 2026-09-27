@@ -30,10 +30,24 @@ const requireAuth = (req, res, next) => {
 };
 
 const requireAdmin = (req, res, next) => {
-  if (req.user?.role !== 'ADMIN') {
+  if (
+    req.user?.role !== 'ADMIN' &&
+    req.user?.role !== 'SUPER_ADMIN'
+  ) {
     return res.status(403).json({
       success: false,
       message: 'Admin access required',
+    });
+  }
+
+  next();
+};
+
+const requireSuperAdmin = (req, res, next) => {
+  if (req.user?.role !== 'SUPER_ADMIN') {
+    return res.status(403).json({
+      success: false,
+      message: 'Super Admin access required',
     });
   }
 
@@ -55,4 +69,5 @@ module.exports = {
   requireAuth,
   requireAdmin,
   requireInstaller,
+  requireSuperAdmin,
 };

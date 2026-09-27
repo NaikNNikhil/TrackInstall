@@ -25,11 +25,6 @@ export  function LoginScreen({ navigation }) {
   const [errorMessage, setErrorMessage] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  const goToRole = (role) =>
-    navigation.replace(
-      role === 'admin' ? 'AdminFlow' : 'InstallerFlow'
-    );
-
   const handleLogin = async () => {
     setErrorMessage('');
 
@@ -52,7 +47,8 @@ export  function LoginScreen({ navigation }) {
 
       if (result.success && result.user) {
         const targetFlow =
-          result.user.role === 'ADMIN'
+          result.user.role === 'ADMIN' ||
+          result.user.role === 'SUPER_ADMIN'
             ? 'AdminFlow'
             : 'InstallerFlow';
 
@@ -159,40 +155,6 @@ export  function LoginScreen({ navigation }) {
             />
           </View>
 
-          <View style={styles.demoSection}>
-            <View style={styles.dividerRow}>
-              <View style={styles.divider} />
-
-              <Text style={styles.dividerText}>
-                Demo Login
-              </Text>
-
-              <View style={styles.divider} />
-            </View>
-
-            <Text style={styles.demoDescription}>
-              Explore the prototype using a demo role.
-            </Text>
-
-            <SecondaryButton
-              title="Continue as Admin"
-              onPress={() => goToRole('admin')}
-            />
-
-            <SecondaryButton
-              title="Continue as Installer"
-              onPress={() => goToRole('installer')}
-              style={styles.secondDemoButton}
-            />
-          </View>
-
-          <View style={styles.mode}>
-            <View style={styles.modeDot} />
-
-            <Text style={styles.modeText}>
-              Demo Mode
-            </Text>
-          </View>
         </ScrollView>
       </KeyboardAvoidingView>
     </ScreenContainer>

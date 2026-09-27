@@ -12,6 +12,7 @@ const installerJobRoutes = require('./routes/installerJobRoutes');
 const installerVisitRoutes = require('./routes/installerVisitRoutes');
 const adminVisitRoutes = require('./routes/adminVisitRoutes');
 const adminPaymentRoutes = require('./routes/adminPaymentRoutes');
+const adminManagementRoutes = require('./routes/adminManagementRoutes');
 
 const app = express();
 
@@ -33,6 +34,7 @@ app.use('/api/v1/installer/jobs', installerJobRoutes);
 app.use('/api/v1/installer', installerVisitRoutes);
 app.use('/api/v1/admin/visits', adminVisitRoutes);
 app.use('/api/v1/admin/payments', adminPaymentRoutes);
+app.use('/api/v1/admin/admins', adminManagementRoutes);
 
 app.use((req, res) => {
   res.status(404).json({
