@@ -200,9 +200,11 @@ export function AssignedSites({ navigation }) {
     }
   };
 
-  React.useEffect(() => {
-    loadJobs();
-  }, [token]);
+  useFocusEffect(
+    useCallback(() => {
+      loadJobs();
+    }, [token])
+  );
 
   const list = jobs
     .map((job) => ({
@@ -975,5 +977,51 @@ export function InstallerAddVisit({ route, navigation }) {
 }
 
 export function InstallerExtraRequests() { const { sites, visits } = useAdminData(); const [filter, setFilter] = useState('All'); const list = visits.filter((visit) => visit.type === 'EXTRA' && sites.some((site) => site.id === visit.siteId && site.installerId === INSTALLER_ID) && (filter === 'All' || visit.status === filter)); return <Page><Text style={s.title}>Extra Visit Requests</Text><Text style={s.subtitle}>Track approval status for submitted extra visits.</Text><FilterChips options={['All', 'PENDING_APPROVAL', 'APPROVED', 'REJECTED']} selected={filter} onSelect={setFilter} />{list.length ? list.slice().reverse().map((visit) => <VisitCard key={visit.id} visit={visit} site={sites.find((site) => site.id === visit.siteId)} />) : <EmptyState text="No extra visit requests found." />}</Page>; }
-export function InstallerMore({ navigation }) { const { logout: authLogout } = useAuth(); const logout = async () => { if (authLogout) await authLogout(); navigation.getParent('RootStack')?.reset({ index: 0, routes: [{ name: 'AuthFlow' }] }); }; return <Page><AppHeader greeting="Rahul Patil" /><Text style={s.title}>More</Text>{[['InstallerVisitHistory', 'Visit History', 'Review all submitted visits'], ['InstallerExtraRequests', 'Extra Visit Requests', 'Track approval status']].map(([route, title, description]) => <Pressable key={route} style={s.card} onPress={() => navigation.navigate(route)}><Text style={s.cardTitle}>{title}</Text><Text style={s.meta}>{description}</Text></Pressable>)}<Pressable style={s.card} onPress={logout}><Text style={styles.logout}>Logout</Text><Text style={s.meta}>Return to Login</Text></Pressable></Page>; }
+
+export function InstallerMore({ navigation }) {
+  const { logout: authLogout, user } = useAuth();
+
+  const logout = async () => {
+    if (authLogout) await authLogout();
+
+    navigation.getParent('RootStack')?.reset({
+      index: 0,
+      routes: [{ name: 'AuthFlow' }],
+    });
+  };
+
+  return (
+    <Page>
+      <AppHeader greeting={user?.name || 'Installer'} />
+
+      <Text style={s.title}>More</Text>
+
+      <Pressable
+        style={s.card}
+        onPress={() => navigation.navigate('InstallerVisitHistory')}
+      >
+        <Text style={s.cardTitle}>Visit History</Text>
+        <Text style={s.meta}>
+          Review all submitted visits
+        </Text>
+      </Pressable>
+
+      <Pressable
+        style={s.card}
+        onPress={() => navigation.navigate('InstallerExtraRequests')}
+      >
+        <Text style={s.cardTitle}>Extra Visit Requests</Text>
+        <Text style={s.meta}>
+          Track approval status
+        </Text>
+      </Pressable>
+
+      <Pressable style={s.card} onPress={logout}>
+        <Text style={styles.logout}>Logout</Text>
+        <Text style={s.meta}>Return to Login</Text>
+      </Pressable>
+    </Page>
+  );
+}
+
 const styles = StyleSheet.create({ grid: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between', rowGap: spacing.md, marginTop: spacing.lg }, field: { marginTop: spacing.md }, label: { ...typography.label, color: colors.text }, input: { height: 50, marginTop: spacing.xs, paddingHorizontal: spacing.md, borderWidth: 1, borderColor: colors.border, borderRadius: 12, backgroundColor: colors.surface, color: colors.text }, select: { minHeight: 50, marginTop: spacing.xs, paddingHorizontal: spacing.md, borderWidth: 1, borderColor: colors.border, borderRadius: 12, backgroundColor: colors.surface, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }, selectText: { ...typography.body, color: colors.text }, placeholder: { color: colors.textSecondary }, arrow: { ...typography.heading, color: colors.primary }, overlay: { flex: 1, justifyContent: 'center', padding: spacing.lg, backgroundColor: 'rgba(23,33,43,0.35)' }, modal: { backgroundColor: colors.surface, borderRadius: 12, overflow: 'hidden' }, option: { padding: spacing.md, borderBottomWidth: 1, borderBottomColor: colors.border }, optionText: { ...typography.body, color: colors.text }, rate: { ...typography.heading, color: colors.primary }, status: { marginTop: spacing.sm }, button: { marginTop: spacing.sm }, rejected: { ...typography.caption, color: '#B42318', marginTop: spacing.xs }, logout: { ...typography.heading, color: '#B42318' } });

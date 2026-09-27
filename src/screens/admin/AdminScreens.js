@@ -26,12 +26,42 @@ const DOOR_TYPE_IDS = {
 const DOOR_TYPES = Object.keys(DOOR_TYPE_IDS);
 
 const InstallerRow = ({ installer, navigation }) => {
-  const { sites } = useAdminData();
   const { token } = useAuth();
 
-  const assigned = sites.filter(
-    (x) => x.installerId === installer.id
-  );
+  const [assigned, setAssigned] = useState([]);
+  const [loadingJobs, setLoadingJobs] = useState(true);
+
+  const loadInstallerJobs = async () => {
+    try {
+      setLoadingJobs(true);
+
+      const response = await apiClient.get(
+        '/admin/jobs',
+        { token }
+      );
+
+      const jobs = response?.data || [];
+
+      setAssigned(
+        jobs.filter(
+          (job) =>
+            job.installer_id === installer.id
+        )
+      );
+    } catch (err) {
+      console.error(
+        'Failed to load installer jobs:',
+        err
+      );
+      setAssigned([]);
+    } finally {
+      setLoadingJobs(false);
+    }
+  };
+
+  useEffect(() => {
+    loadInstallerJobs();
+  }, [installer.id, token]);
 
   const handleResendActivation = async () => {
     try {
@@ -41,7 +71,8 @@ const InstallerRow = ({ installer, navigation }) => {
         { token }
       );
 
-      const activationToken = response?.data?.activationToken;
+      const activationToken =
+        response?.data?.activationToken;
 
       if (activationToken) {
         Alert.alert(
@@ -57,41 +88,57 @@ const InstallerRow = ({ installer, navigation }) => {
     } catch (err) {
       Alert.alert(
         'Unable to Resend',
-        err.message || 'Failed to generate a new activation code.'
+        err.message ||
+          'Failed to generate a new activation code.'
       );
     }
   };
+
+  const assignedCount = assigned.filter(
+    (job) => job.status === 'ASSIGNED'
+  ).length;
+
+  const completedCount = assigned.filter(
+    (job) => job.status === 'COMPLETED'
+  ).length;
 
   return (
     <View style={s.card}>
       <Pressable
         onPress={() =>
-          navigation.navigate('InstallerDetails', {
-            installerId: installer.id,
-          })
+          navigation.navigate(
+            'InstallerDetails',
+            {
+              installerId: installer.id,
+            }
+          )
         }
       >
         <View style={s.row}>
-          <Text style={s.cardTitle}>{installer.name}</Text>
+          <Text style={s.cardTitle}>
+            {installer.name}
+          </Text>
 
           <StatusBadge
-            status={installer.is_active ? 'ACTIVE' : 'INACTIVE'}
+            status={
+              installer.is_active
+                ? 'ACTIVE'
+                : 'INACTIVE'
+            }
           />
         </View>
 
         <Text style={s.meta}>
-          {installer.phone_number} • {installer.city_name}
+          {installer.phone_number} •{' '}
+          {installer.city_name}
         </Text>
 
         <Text style={s.meta}>
           Assigned:{' '}
-          {assigned.filter(
-            (x) => x.status === 'ASSIGNED'
-          ).length}{' '}
-          • Completed:{' '}
-          {assigned.filter(
-            (x) => x.status === 'COMPLETED'
-          ).length}
+          {loadingJobs ? '...' : assignedCount}
+          {' • '}
+          Completed:{' '}
+          {loadingJobs ? '...' : completedCount}
         </Text>
       </Pressable>
 
@@ -142,27 +189,276 @@ const SiteRow = ({ site, navigation }) => {
   );
 };
 
-export function Dashboard({ navigation }) { const { installers, sites, visits, cities } = useAdminData(); const pending = visits.filter((x) => x.status === 'PENDING_APPROVAL'); const cards = [{ label: 'Total Cities', value: cities.length }, { label: 'Total Installers', value: installers.length }, { label: 'Assigned Sites', value: sites.filter((x) => x.status === 'ASSIGNED').length }, { label: 'Completed Sites', value: sites.filter((x) => x.status === 'COMPLETED').length }, { label: 'Pending Approvals', value: pending.length }, { label: 'Pending Payments', value: money(sites.filter((x) => x.paymentStatus === 'PAYMENT_PENDING').reduce((sum, x) => sum + getSiteTotal(x, visits).total, 0)) }]; return <Page><AppHeader greeting="Welcome, Admin" /><Text style={s.title}>Admin Dashboard</Text><Text style={s.subtitle}>Stay on top of installation operations.</Text><View style={styles.grid}>{cards.map((x) => <StatCard key={x.label} {...x} />)}</View><SectionHeader title="Pending Approvals" action="View All" onPress={() => navigation.navigate('Approvals')} />{pending.slice(0, 2).map((v) => { const site = sites.find((x) => x.id === v.siteId); const installer = installers.find((x) => x.id === site.installerId); return <Pressable key={v.id} onPress={() => navigation.navigate('VisitDetails', { visitId: v.id })} style={s.card}><View style={s.row}><Text style={s.cardTitle}>{site.name}</Text><StatusBadge status={v.status} /></View><Text style={s.meta}>{installer.name}  •  Visit {v.number}  •  {v.reason}</Text></Pressable>; })}<SectionHeader title="Recent Sites" action="View Sites" onPress={() => navigation.navigate('Sites')} />{sites.slice(0, 3).map((x) => <SiteRow key={x.id} site={x} navigation={navigation} />)}</Page>; }
+export function Dashboard({ navigation }) {
+  const { token } = useAuth();
+
+  const [installers, setInstallers] = useState([]);
+  const [sites, setSites] = useState([]);
+  const [visits, setVisits] = useState([]);
+  const [payments, setPayments] = useState([]);
+  const [loading, setLoading] = useState(true);
+
+  const loadDashboard = async () => {
+    try {
+      setLoading(true);
+
+      const [
+        installersResponse,
+        sitesResponse,
+        visitsResponse,
+        paymentsResponse,
+      ] = await Promise.all([
+        apiClient.get('/admin/installers', { token }),
+        apiClient.get('/admin/jobs', { token }),
+        apiClient.get('/admin/visits', { token }),
+        apiClient.get('/admin/payments', { token }),
+      ]);
+
+      setInstallers(installersResponse?.data || []);
+      setSites(sitesResponse?.data || []);
+      setVisits(visitsResponse?.data || []);
+      setPayments(paymentsResponse?.data || []);
+    } catch (err) {
+      console.error(
+        'Dashboard load error:',
+        err
+      );
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useFocusEffect(
+    useCallback(() => {
+      loadDashboard();
+    }, [token])
+  );
+
+  const pending = visits.filter(
+    (visit) =>
+      visit.status === 'PENDING_APPROVAL'
+  );
+
+  const pendingPayments = payments.filter(
+    (payment) =>
+      payment.status === 'PENDING'
+  );
+
+  const pendingPaymentTotal =
+    pendingPayments.reduce(
+      (sum, payment) =>
+        sum +
+        Number(
+          payment.total_amount || 0
+        ),
+      0
+    );
+
+  const totalPaid = payments
+    .filter(
+      (payment) =>
+        payment.status === 'PAID'
+    )
+    .reduce(
+      (sum, payment) =>
+        sum +
+        Number(
+          payment.total_amount || 0
+        ),
+      0
+    );
+
+  const cards = [
+    {
+      label: 'Total Installers',
+      value: installers.length,
+    },
+    {
+      label: 'Assigned Sites',
+      value: sites.filter(
+        (site) =>
+          site.status === 'ASSIGNED'
+      ).length,
+    },
+    {
+      label: 'Completed Sites',
+      value: sites.filter(
+        (site) =>
+          site.status === 'COMPLETED'
+      ).length,
+    },
+    {
+      label: 'Pending Approvals',
+      value: pending.length,
+    },
+    {
+      label: 'Pending Payments',
+      value: money(
+        pendingPaymentTotal
+      ),
+    },
+    {
+      label: 'Total Paid',
+      value: money(totalPaid),
+    },
+  ];
+
+  if (loading) {
+    return (
+      <Page>
+        <AppHeader greeting="Welcome, Admin" />
+
+        <Text style={s.title}>
+          Admin Dashboard
+        </Text>
+
+        <Text style={s.subtitle}>
+          Loading dashboard...
+        </Text>
+      </Page>
+    );
+  }
+
+  return (
+    <Page>
+      <AppHeader greeting="Welcome, Admin" />
+
+      <Text style={s.title}>
+        Admin Dashboard
+      </Text>
+
+      <Text style={s.subtitle}>
+        Stay on top of installation operations.
+      </Text>
+
+      <View style={styles.grid}>
+        {cards.map((card) => (
+          <StatCard
+            key={card.label}
+            {...card}
+          />
+        ))}
+      </View>
+
+      <SectionHeader
+        title="Pending Approvals"
+        action="View All"
+        onPress={() =>
+          navigation.navigate(
+            'Approvals'
+          )
+        }
+      />
+
+      {pending.slice(0, 2).map((visit) => {
+        const site = sites.find(
+          (item) =>
+            item.id === visit.job_id
+        );
+
+        const installer =
+          installers.find(
+            (item) =>
+              item.id ===
+              site?.installer_id
+          );
+
+        return (
+          <Pressable
+            key={visit.id}
+            onPress={() =>
+              navigation.navigate(
+                'VisitDetails',
+                {
+                  visit,
+                }
+              )
+            }
+            style={s.card}
+          >
+            <View style={s.row}>
+              <Text style={s.cardTitle}>
+                {site?.site_name ||
+                  'Installation Site'}
+              </Text>
+
+              <StatusBadge
+                status={visit.status}
+              />
+            </View>
+
+            <Text style={s.meta}>
+              {installer?.name ||
+                'Installer'}
+              {'  •  '}
+              Visit{' '}
+              {visit.visit_number}
+              {'  •  '}
+              {visit.reason ||
+                'Pending approval'}
+            </Text>
+          </Pressable>
+        );
+      })}
+
+      {pending.length === 0 && (
+        <EmptyState
+          text="No pending approvals."
+        />
+      )}
+
+      <SectionHeader
+        title="Recent Sites"
+        action="View Sites"
+        onPress={() =>
+          navigation.navigate(
+            'Sites'
+          )
+        }
+      />
+
+      {sites
+        .slice(0, 3)
+        .map((site) => (
+          <SiteRow
+            key={site.id}
+            site={site}
+            navigation={navigation}
+          />
+        ))}
+    </Page>
+  );
+}
+
 export function MoreScreen({ navigation }) { const { logout: authLogout } = useAuth(); const logout = async () => { if (authLogout) await authLogout(); navigation.getParent('RootStack')?.reset({ index: 0, routes: [{ name: 'AuthFlow' }] }); }; return <Page><AppHeader greeting="Admin tools" /><Text style={s.title}>More</Text>{[['Sites', 'Manage assigned site jobs'], ['Installers', 'Manage your installation team'], ['Visits', 'Review all site visits'], ['Approvals', 'Approve extra visits'], ['Payments', 'Manage site payments']].map(([name, desc]) => <Pressable key={name} style={s.card} onPress={() => navigation.navigate(name)}><Text style={s.cardTitle}>{name}</Text><Text style={s.meta}>{desc}</Text></Pressable>)}<Pressable style={s.card} onPress={logout}><Text style={[s.cardTitle, styles.logout]}>Logout</Text><Text style={s.meta}>Return to Login</Text></Pressable></Page>; }
 
 export function CitiesScreen({ navigation }) {
-  const { installers, sites } = useAdminData();
   const { token } = useAuth();
 
   const [cities, setCities] = useState([]);
+  const [installers, setInstallers] = useState([]);
+  const [sites, setSites] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState('');
 
   const loadCities = async () => {
     try {
       setLoading(true);
-      setError('');
 
-      const response = await apiClient.get('/admin/cities', { token });
+      const [citiesResponse, installersResponse, jobsResponse] =
+        await Promise.all([
+          apiClient.get('/admin/cities', { token }),
+          apiClient.get('/admin/installers', { token }),
+          apiClient.get('/admin/jobs', { token }),
+        ]);
 
-      setCities(response?.data || []);
+      setCities(citiesResponse?.data || []);
+      setInstallers(installersResponse?.data || []);
+      setSites(jobsResponse?.data || []);
     } catch (err) {
-      setError(err.message || 'Failed to load cities.');
+      Alert.alert(
+        'Unable to Load Cities',
+        err.message || 'Failed to load city data.'
+      );
     } finally {
       setLoading(false);
     }
@@ -178,20 +474,7 @@ export function CitiesScreen({ navigation }) {
     return (
       <Page>
         <Text style={s.title}>Cities</Text>
-        <Text style={s.subtitle}>Loading cities...</Text>
-      </Page>
-    );
-  }
-
-  if (error) {
-    return (
-      <Page>
-        <Text style={s.title}>Cities</Text>
-        <Text style={s.subtitle}>{error}</Text>
-
-        <Pressable onPress={loadCities}>
-          <Text style={styles.add}>Retry</Text>
-        </Pressable>
+        <Text>Loading cities...</Text>
       </Page>
     );
   }
@@ -211,35 +494,50 @@ export function CitiesScreen({ navigation }) {
         </Pressable>
       </View>
 
-      {cities.map((city) => {
-        const cityName = city.name;
-        const citySites = sites.filter((x) => x.city === cityName);
+      {cities.length ? (
+        cities.map((city) => {
+          const cityInstallers = installers.filter(
+            (installer) => installer.city_id === city.id
+          );
 
-        return (
-          <Pressable
-            key={city.id}
-            style={s.card}
-            onPress={() =>
-              navigation.navigate('CityDetails', { city: cityName })
-            }
-          >
-            <Text style={s.cardTitle}>{cityName}</Text>
+          const citySites = sites.filter(
+            (site) => site.city_id === city.id
+          );
 
-            <Text style={s.meta}>
-              Installers:{' '}
-              {installers.filter((x) => x.city === cityName).length}
-              {' • '}
-              Assigned Sites:{' '}
-              {citySites.filter((x) => x.status === 'ASSIGNED').length}
-            </Text>
+          const assignedSites = citySites.filter(
+            (site) => site.status === 'ASSIGNED'
+          ).length;
 
-            <Text style={s.meta}>
-              Completed:{' '}
-              {citySites.filter((x) => x.status === 'COMPLETED').length}
-            </Text>
-          </Pressable>
-        );
-      })}
+          const completedSites = citySites.filter(
+            (site) => site.status === 'COMPLETED'
+          ).length;
+
+          return (
+            <Pressable
+              key={city.id}
+              style={s.card}
+              onPress={() =>
+                navigation.navigate('CityDetails', {
+                  city: city.name,
+                })
+              }
+            >
+              <Text style={s.cardTitle}>{city.name}</Text>
+
+              <Text style={s.meta}>
+                Installers: {cityInstallers.length} • Assigned Sites:{' '}
+                {assignedSites}
+              </Text>
+
+              <Text style={s.meta}>
+                Completed: {completedSites}
+              </Text>
+            </Pressable>
+          );
+        })
+      ) : (
+        <EmptyState text="No cities found." />
+      )}
     </Page>
   );
 }
@@ -312,13 +610,233 @@ export function AddCity({ navigation }) {
     </Page>
   );
 }
-export function CityDetails({ route, navigation }) { const { city } = route.params; const { installers, sites, visits } = useAdminData(); const cityInstallers = installers.filter((x) => x.city === city), citySites = sites.filter((x) => x.city === city); return <Page><Text style={s.title}>{city}</Text><Text style={s.subtitle}>City operations overview</Text><View style={styles.grid}>{[{ label: 'Installers', value: cityInstallers.length }, { label: 'Assigned Sites', value: citySites.filter((x) => x.status === 'ASSIGNED').length }, { label: 'Completed', value: citySites.filter((x) => x.status === 'COMPLETED').length }, { label: 'Pending Visits', value: visits.filter((x) => citySites.some((a) => a.id === x.siteId) && x.status === 'PENDING_APPROVAL').length }].map((x) => <StatCard key={x.label}{...x} />)}</View><SectionHeader title="Installers in this city" />{cityInstallers.map((x) => <InstallerRow key={x.id} installer={x} navigation={navigation} />)}<SectionHeader title="Sites in this city" />{citySites.map((x) => <SiteRow key={x.id} site={x} navigation={navigation} />)}</Page>; }
+
+export function CityDetails({ route, navigation }) {
+  const { city } = route.params;
+  const { token } = useAuth();
+
+  const [cities, setCities] = useState([]);
+  const [installers, setInstallers] = useState([]);
+  const [sites, setSites] = useState([]);
+  const [visits, setVisits] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [showAllInstallers, setShowAllInstallers] = useState(false);
+  const [showAllSites, setShowAllSites] = useState(false);
+
+  const loadCityDetails = async () => {
+    try {
+      setLoading(true);
+
+      const [
+        citiesResponse,
+        installersResponse,
+        jobsResponse,
+        visitsResponse,
+      ] = await Promise.all([
+        apiClient.get('/admin/cities', { token }),
+        apiClient.get('/admin/installers', { token }),
+        apiClient.get('/admin/jobs', { token }),
+        apiClient.get('/admin/visits', { token }),
+      ]);
+
+      setCities(citiesResponse?.data || []);
+      setInstallers(installersResponse?.data || []);
+      setSites(jobsResponse?.data || []);
+      setVisits(visitsResponse?.data || []);
+    } catch (err) {
+      Alert.alert(
+        'Unable to Load City',
+        err.message || 'Failed to load city details.'
+      );
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useFocusEffect(
+    useCallback(() => {
+      loadCityDetails();
+    }, [token, city])
+  );
+
+  if (loading) {
+    return (
+      <Page>
+        <Text style={s.title}>{city}</Text>
+        <Text style={s.meta}>Loading city details...</Text>
+      </Page>
+    );
+  }
+
+  const cityRecord = cities.find(
+    (item) => item.name === city
+  );
+
+  const cityInstallers = installers.filter(
+    (installer) => installer.city_id === cityRecord?.id
+  );
+
+  const citySites = sites.filter(
+    (site) => site.city_id === cityRecord?.id
+  );
+
+  const citySiteIds = new Set(
+    citySites.map((site) => site.id)
+  );
+
+  const cityVisits = visits.filter(
+    (visit) => citySiteIds.has(visit.job_id)
+  );
+
+  const assignedSites = citySites.filter(
+    (site) => site.status === 'ASSIGNED'
+  ).length;
+
+  const completedSites = citySites.filter(
+    (site) => site.status === 'COMPLETED'
+  ).length;
+
+  const pendingVisits = cityVisits.filter(
+    (visit) => visit.status === 'PENDING_APPROVAL'
+  ).length;
+
+  return (
+    <Page>
+      <Text style={s.title}>{city}</Text>
+      <Text style={s.subtitle}>City operations overview</Text>
+
+      <View style={styles.grid}>
+        <StatCard
+          label="Installers"
+          value={cityInstallers.length}
+        />
+
+        <StatCard
+          label="Assigned Sites"
+          value={assignedSites}
+        />
+
+        <StatCard
+          label="Completed"
+          value={completedSites}
+        />
+
+        <StatCard
+          label="Pending Visits"
+          value={pendingVisits}
+        />
+      </View>
+
+      <SectionHeader
+        title="Installers in this city"
+        action={showAllInstallers ? 'Show Less' : 'View All'}
+        onPress={() => setShowAllInstallers((value) => !value)}
+      />
+
+      {cityInstallers.length ? (
+        (showAllInstallers
+          ? cityInstallers
+          : cityInstallers
+              .slice(0, 3)
+        ).map((installer) => (
+          <Pressable
+            key={installer.id}
+            style={s.card}
+            onPress={() =>
+              navigation.navigate('InstallerDetails', {
+                installerId: installer.id,
+              })
+            }
+          >
+            <View style={s.row}>
+              <Text style={s.cardTitle}>
+                {installer.name}
+              </Text>
+
+              <StatusBadge
+                status={
+                  installer.is_active
+                    ? 'ACTIVE'
+                    : 'INACTIVE'
+                }
+              />
+            </View>
+
+            <Text style={s.meta}>
+              {installer.phone_number || 'No phone number'}
+            </Text>
+
+            <Text style={s.meta}>
+              Assigned Sites:{' '}
+              {
+                citySites.filter(
+                  (site) =>
+                    site.installer_id === installer.id
+                ).length
+              }
+            </Text>
+          </Pressable>
+        ))
+      ) : (
+        <EmptyState text="No installers found in this city." />
+      )}
+
+      <SectionHeader
+        title="Sites in this city"
+        action={showAllSites ? 'Show Less' : 'View All'}
+        onPress={() => setShowAllSites((value) => !value)}
+      />
+
+      {citySites.length ? (
+        (showAllSites ? citySites : citySites.slice(0, 3)).map(
+          (site) => (
+            <Pressable
+              key={site.id}
+              style={s.card}
+              onPress={() =>
+                navigation.navigate('SiteDetails', {
+                  siteId: site.id,
+                })
+              }
+            >
+              <View style={s.row}>
+                <Text style={s.cardTitle}>
+                  {site.site_name}
+                </Text>
+
+                <StatusBadge status={site.status} />
+              </View>
+
+              <Text style={s.meta}>
+                {site.order_id} •{' '}
+                {site.installer_name || 'Unassigned'}
+              </Text>
+
+              <Text style={s.meta}>
+                Customer: {site.customer_name || '-'}
+              </Text>
+
+              <Text style={s.meta}>
+                Payment:{' '}
+                {site.payment_status
+                  ? site.payment_status.replace(/_/g, ' ')
+                  : 'NOT_READY'}
+              </Text>
+            </Pressable>
+          )
+        )
+      ) : (
+        <EmptyState text="No sites found in this city." />
+      )}
+    </Page>
+  );
+}
 
 export function InstallersScreen({ navigation }) {
-  const { cities } = useAdminData();
   const { token } = useAuth();
 
   const [installers, setInstallers] = useState([]);
+  const [cities, setCities] = useState([]);
   const [query, setQuery] = useState('');
   const [city, setCity] = useState('All');
   const [status, setStatus] = useState('All');
@@ -330,9 +848,13 @@ export function InstallersScreen({ navigation }) {
       setLoading(true);
       setError('');
 
-      const response = await apiClient.get('/admin/installers', { token });
-      
-      setInstallers(response?.data || []);
+      const [installersResponse, citiesResponse] = await Promise.all([
+        apiClient.get('/admin/installers', { token }),
+        apiClient.get('/admin/cities', { token }),
+      ]);
+
+      setInstallers(installersResponse?.data || []);
+      setCities(citiesResponse?.data || []);
     } catch (err) {
       setError(err.message || 'Failed to load installers.');
     } finally {
@@ -349,9 +871,11 @@ export function InstallersScreen({ navigation }) {
   const list = installers.filter(
     (x) =>
       (city === 'All' || x.city_name === city) &&
-      (status === 'All' ||
+      (
+        status === 'All' ||
         (status === 'ACTIVE' && x.is_active) ||
-        (status === 'INACTIVE' && !x.is_active)) &&
+        (status === 'INACTIVE' && !x.is_active)
+      ) &&
       x.name.toLowerCase().includes(query.toLowerCase())
   );
 
@@ -396,9 +920,11 @@ export function InstallersScreen({ navigation }) {
         placeholder="Search installer"
       />
 
-      <FilterChips
-        options={['All', ...cities]}
-        selected={city}
+      <SelectField
+        label="City"
+        value={city === 'All' ? '' : city}
+        placeholder="All Cities"
+        options={['All', ...cities.map((item) => item.name)]}
         onSelect={setCity}
       />
 
@@ -1043,10 +1569,10 @@ export function EditInstallerWithCity({ route, navigation }) {
 }
 
 export function SitesScreen({ navigation }) {
-  const { cities } = useAdminData();
   const { token } = useAuth();
 
   const [sites, setSites] = useState([]);
+  const [cities, setCities] = useState([]);
   const [query, setQuery] = useState('');
   const [city, setCity] = useState('All');
   const [status, setStatus] = useState('All');
@@ -1058,12 +1584,13 @@ export function SitesScreen({ navigation }) {
       setLoading(true);
       setError('');
 
-      const response = await apiClient.get(
-        '/admin/jobs',
-        { token }
-      );
+      const [sitesResponse, citiesResponse] = await Promise.all([
+        apiClient.get('/admin/jobs', { token }),
+        apiClient.get('/admin/cities', { token }),
+      ]);
 
-      setSites(response?.data || []);
+      setSites(sitesResponse?.data || []);
+      setCities(citiesResponse?.data || []);
     } catch (err) {
       setError(err.message || 'Failed to load sites.');
     } finally {
@@ -1114,9 +1641,11 @@ export function SitesScreen({ navigation }) {
         placeholder="Search site or order ID"
       />
 
-      <FilterChips
-        options={['All', ...cities]}
-        selected={city}
+      <SelectField
+        label="City"
+        value={city === 'All' ? '' : city}
+        placeholder="All Cities"
+        options={['All', ...cities.map((item) => item.name)]}
         onSelect={setCity}
       />
 
@@ -2328,24 +2857,24 @@ export function SiteDetails({ route, navigation }) {
       </Text>
 
       <View style={s.card}>
-        <View style={s.row}>
-          <View>
-            <Text style={s.cardTitle}>
-              {site.customer_name}
-            </Text>
+      <View style={s.row}>
+        <View>
+          <Text style={s.cardTitle}>
+            {site.customer_name}
+          </Text>
 
-            <Text style={s.meta}>
-              {site.contact_number}
-            </Text>
+          <Text style={s.meta}>
+            {site.contact_number}
+          </Text>
 
-            <Text style={s.meta}>
-              {site.address}
-            </Text>
-          </View>
-
-          <StatusBadge status={site.status} />
+          <Text style={s.meta}>
+            {site.address}
+          </Text>
         </View>
+
+        <StatusBadge status={site.status} />
       </View>
+    </View>
 
       <SectionHeader title="Installer" />
 
