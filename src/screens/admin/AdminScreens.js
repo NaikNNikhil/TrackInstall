@@ -818,8 +818,229 @@ export function AddInstaller({ navigation }) {
   );
 }
 
-export function EditInstaller({ route, navigation }) { const { installerId } = route.params; const { installers, doorTypes, updateInstaller } = useAdminData(); const installer = installers.find((item) => item.id === installerId); const [charges, setCharges] = useState({ ...installer.charges }); const save = () => { updateInstaller({ ...installer, charges: { ...doorTypes.reduce((all, type) => ({ ...all, [type]: Number(charges[type] || 0) }), {}), visit: Number(charges.visit || 0) } }); Alert.alert('Master charges updated', 'Existing sites keep their saved historical rates. Future assignments use these new rates.'); navigation.goBack(); }; return <Page><Text style={s.title}>Edit Installer Charges</Text><Text style={s.subtitle}>{installer.name} — these are current master charges only.</Text><SectionHeader title="Current Master Charges" />{doorTypes.map((type) => <Field key={type} label={type} value={String(charges[type] || '')} onChangeText={(value) => setCharges((item) => ({ ...item, [type]: value }))} keyboardType="numeric" />)}<Field label="Visiting Charge" value={String(charges.visit || '')} onChangeText={(value) => setCharges((item) => ({ ...item, visit: value }))} keyboardType="numeric" /><Text style={s.meta}>Assigned sites retain their own door and visiting-charge snapshots.</Text><SecondaryButton title="Cancel" onPress={() => navigation.goBack()} /><PrimaryButton title="Save Current Charges" onPress={save} style={styles.actionButton} /></Page>; }
-export function EditInstallerWithCity({ route, navigation }) { const { installerId } = route.params; const { installers, cities, doorTypes, updateInstaller } = useAdminData(); const installer = installers.find((item) => item.id === installerId); const [city, setCity] = useState(installer.city); const [charges, setCharges] = useState({ ...installer.charges }); const save = () => { updateInstaller({ ...installer, city, charges: { ...doorTypes.reduce((all, type) => ({ ...all, [type]: Number(charges[type] || 0) }), {}), visit: Number(charges.visit || 0) } }); Alert.alert('Installer updated', 'City and current master charges have been saved. Existing site snapshots are unchanged.'); navigation.goBack(); }; return <Page><Text style={s.title}>Edit Installer</Text><Text style={s.subtitle}>{installer.name}</Text><Text style={styles.fieldLabel}>City *</Text><FilterChips options={cities} selected={city} onSelect={setCity} /><SectionHeader title="Current Master Charges" />{doorTypes.map((type) => <Field key={type} label={type} value={String(charges[type] || '')} onChangeText={(value) => setCharges((item) => ({ ...item, [type]: value }))} keyboardType="numeric" />)}<Field label="Visiting Charge" value={String(charges.visit || '')} onChangeText={(value) => setCharges((item) => ({ ...item, visit: value }))} keyboardType="numeric" /><Text style={s.meta}>Existing site charges remain historical snapshots.</Text><SecondaryButton title="Cancel" onPress={() => navigation.goBack()} /><PrimaryButton title="Save Installer" onPress={save} style={styles.actionButton} /></Page>; }
+export function EditInstallerWithCity({ route, navigation }) {
+  const { installerId } = route.params;
+  const { token } = useAuth();
+
+  const [installer, setInstaller] = useState(null);
+  const [cities, setCities] = useState([]);
+  const [doorTypes, setDoorTypes] = useState([]);
+
+  const [cityId, setCityId] = useState('');
+  const [charges, setCharges] = useState({});
+  const [visitingCharge, setVisitingCharge] = useState('');
+
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+
+  const loadInstaller = async () => {
+    try {
+      setLoading(true);
+
+      const [installerResponse, citiesResponse] = await Promise.all([
+        apiClient.get(
+          `/admin/installers/${installerId}`,
+          { token }
+        ),
+        apiClient.get(
+          '/admin/cities',
+          { token }
+        ),
+      ]);
+
+      const data = installerResponse?.data;
+
+      setInstaller(data);
+      setCities(citiesResponse?.data || []);
+
+      setCityId(data?.city_id || '');
+
+      setVisitingCharge(
+        String(data?.visiting_charge ?? '')
+      );
+
+      const loadedCharges = {};
+
+      (data?.doorCharges || []).forEach((item) => {
+        loadedCharges[item.door_type] =
+          String(item.installation_charge ?? '');
+      });
+
+      setCharges(loadedCharges);
+
+      setDoorTypes(
+        (data?.doorCharges || []).map(
+          (item) => item.door_type
+        )
+      );
+    } catch (err) {
+      Alert.alert(
+        'Unable to Load Installer',
+        err.message || 'Failed to load installer details.'
+      );
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    loadInstaller();
+  }, [token, installerId]);
+
+  const save = async () => {
+    try {
+      if (!installer) {
+        return;
+      }
+
+      if (!cityId) {
+        Alert.alert(
+          'Missing City',
+          'Please select a city.'
+        );
+        return;
+      }
+
+      setSaving(true);
+
+      const doorCharges = (installer.doorCharges || []).map(
+        (item) => ({
+          doorTypeId: item.door_type_id,
+          installationCharge: Number(
+            charges[item.door_type] || 0
+          ),
+        })
+      );
+
+      await apiClient.put(
+        `/admin/installers/${installerId}`,
+        {
+          name: installer.name,
+          email: installer.email,
+          phoneNumber: installer.phone_number,
+          cityId,
+          visitingCharge: Number(
+            visitingCharge || 0
+          ),
+          doorCharges,
+        },
+        { token }
+      );
+
+      Alert.alert(
+        'Installer Updated',
+        'Current master charges have been updated. Existing site charges remain unchanged.',
+        [
+          {
+            text: 'OK',
+            onPress: () => navigation.goBack(),
+          },
+        ]
+      );
+    } catch (err) {
+      Alert.alert(
+        'Unable to Update Installer',
+        err.message || 'Failed to update installer.'
+      );
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  if (loading) {
+    return (
+      <Page>
+        <Text style={s.title}>Edit Installer</Text>
+        <Text>Loading installer...</Text>
+      </Page>
+    );
+  }
+
+  if (!installer) {
+    return (
+      <Page>
+        <Text style={s.title}>Edit Installer</Text>
+        <EmptyState text="Installer details not found." />
+      </Page>
+    );
+  }
+
+  return (
+    <Page>
+      <Text style={s.title}>
+        Edit Installer
+      </Text>
+
+      <Text style={s.subtitle}>
+        {installer.name}
+      </Text>
+
+      <Text style={styles.fieldLabel}>
+        City *
+      </Text>
+
+      <FilterChips
+        options={cities.map((city) => city.name)}
+        selected={
+          cities.find((city) => city.id === cityId)?.name ||
+          ''
+        }
+        onSelect={(name) => {
+          const selected = cities.find(
+            (city) => city.name === name
+          );
+
+          setCityId(selected?.id || '');
+        }}
+      />
+
+      <SectionHeader title="Current Master Charges" />
+
+      {doorTypes.map((type) => (
+        <Field
+          key={type}
+          label={type}
+          value={String(charges[type] || '')}
+          onChangeText={(value) =>
+            setCharges((current) => ({
+              ...current,
+              [type]: value,
+            }))
+          }
+          keyboardType="numeric"
+        />
+      ))}
+
+      <Field
+        label="Visiting Charge"
+        value={visitingCharge}
+        onChangeText={setVisitingCharge}
+        keyboardType="numeric"
+      />
+
+      <Text style={s.meta}>
+        Existing site assignments keep their historical
+        installation and visiting-charge snapshots.
+      </Text>
+
+      <SecondaryButton
+        title="Cancel"
+        onPress={() => navigation.goBack()}
+      />
+
+      <PrimaryButton
+        title={
+          saving
+            ? 'Saving...'
+            : 'Save Installer'
+        }
+        onPress={save}
+        disabled={saving}
+        style={styles.actionButton}
+      />
+    </Page>
+  );
+}
 
 export function SitesScreen({ navigation }) {
   const { cities } = useAdminData();
@@ -2015,6 +2236,8 @@ export function SiteDetails({ route, navigation }) {
         { token }
       );
 
+      console.log('SITE DETAILS RESPONSE:', response?.data);
+
       setSite(response?.data);
 
       try {
@@ -2104,21 +2327,25 @@ export function SiteDetails({ route, navigation }) {
         {site.order_id} • {site.city_name}
       </Text>
 
-      <View style={[s.card, s.row]}>
-        <View>
-          <Text style={s.meta}>
-            {site.customer_name}
-          </Text>
+      <View style={s.card}>
+        <View style={s.row}>
+          <View>
+            <Text style={s.cardTitle}>
+              {site.customer_name}
+            </Text>
 
-          <Text style={s.meta}>
-            {site.contact_number}
-          </Text>
+            <Text style={s.meta}>
+              {site.contact_number}
+            </Text>
+
+            <Text style={s.meta}>
+              {site.address}
+            </Text>
+          </View>
+
+          <StatusBadge status={site.status} />
         </View>
-
-        <StatusBadge status={site.status} />
       </View>
-
-      <Text style={s.meta}>{site.address}</Text>
 
       <SectionHeader title="Installer" />
 
