@@ -11,8 +11,7 @@ import { getSiteTotal, money, useAdminData } from '../../data/AdminDataContext';
 import { colors, spacing, typography } from '../../theme';
 import { useAuth } from '../../auth';
 import { API_BASE_URL, apiClient } from '../../api';
-import { fetch as expoFetch } from 'expo/fetch';
-import { File } from 'expo-file-system';
+import { File, UploadType } from 'expo-file-system';
 const Page = ({ children }) => <ScreenContainer><ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={s.page}>{children}</ScrollView></ScreenContainer>;
 
 const DOOR_TYPE_IDS = {
@@ -2107,35 +2106,38 @@ export function AssignNewSiteFinal({ navigation, route }) {
   // -----------------------------
 
   const uploadOrderFile = async (jobId, file) => {
-  if (!file?.expoFile) {
-    return null;
-  }
+    if (!file?.expoFile) {
+      return null;
+    }
 
-    const formData = new FormData();
-
-    formData.append('file', file.expoFile);
-
-    const response = await expoFetch(
+    const response = await file.expoFile.upload(
       `${API_BASE_URL}/admin/jobs/${jobId}/order-file`,
       {
-        method: 'POST',
+        httpMethod: 'POST',
+        uploadType: UploadType.MULTIPART,
+        fieldName: 'file',
+        mimeType:
+          file.mimeType ||
+          'application/octet-stream',
         headers: {
           Accept: 'application/json',
           Authorization: `Bearer ${token}`,
         },
-        body: formData,
       }
     );
 
     let responseData = null;
 
     try {
-      responseData = await response.json();
+      responseData = JSON.parse(response.body);
     } catch {
       responseData = null;
     }
 
-    if (!response.ok) {
+    if (
+      response.status < 200 ||
+      response.status >= 300
+    ) {
       throw new Error(
         responseData?.message ||
           `Order form upload failed (${response.status})`

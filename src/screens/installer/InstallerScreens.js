@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { Alert, Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import React, { useState, useEffect } from 'react';
+import { Alert, Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View, Linking } from 'react-native';
 import AppHeader from '../../components/AppHeader';
 import PrimaryButton from '../../components/PrimaryButton';
 import SecondaryButton from '../../components/SecondaryButton';
@@ -9,7 +9,7 @@ import { EmptyState, FilterChips, SearchBar, SectionHeader, StatusBadge, adminSt
 import { money, useAdminData } from '../../data/AdminDataContext';
 import { colors, spacing, typography } from '../../theme';
 import { useAuth } from '../../auth';
-import { apiClient } from '../../api';
+import { API_BASE_URL, apiClient } from '../../api';
 
 const INSTALLER_ID = 'i1';
 const Page = ({ children }) => <ScreenContainer><ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={s.page}>{children}</ScrollView></ScreenContainer>;
@@ -556,7 +556,177 @@ export function InstallerSiteDetails({ route, navigation }) {
   );
 }
 
-export function InstallerOrderForm({ route }) { const { sites } = useAdminData(); const site = sites.find((item) => item.id === route.params.siteId); const extension = site.orderFile?.split('.').pop()?.toUpperCase(); return <Page><Text style={s.title}>Order Form</Text><Text style={s.subtitle}>{site.name}</Text><View style={s.card}><Text style={s.cardTitle}>{site.orderFile || 'No order form selected'}</Text><Text style={s.meta}>{site.orderFile ? `${extension} document — mock preview` : 'Ask your administrator to attach an order form.'}</Text></View>{site.orderFile ? <PrimaryButton title="Open Preview" onPress={() => Alert.alert('Order form preview', `Mock preview opened for ${site.orderFile}.`)} /> : null}</Page>; }
+export function InstallerOrderForm({ route }) {
+  const { token } = useAuth();
+  const { siteId } = route.params;
+
+  const [site, setSite] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+
+  const loadSite = async () => {
+    try {
+      setLoading(true);
+      setError('');
+
+      const response = await apiClient.get(
+        `/installer/jobs/${siteId}`,
+        { token }
+      );
+
+      setSite(response?.data || null);
+    } catch (err) {
+      setError(
+        err.message ||
+          'Failed to load order form.'
+      );
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    loadSite();
+  }, [siteId, token]);
+
+  const openOrderFile = async () => {
+    try {
+      if (!site?.orderFile?.file_url) {
+        Alert.alert(
+          'File Not Available',
+          'Order form file is not available.'
+        );
+        return;
+      }
+
+      let fileUrl = site.orderFile.file_url;
+
+      // Full URL: use as it is
+      if (
+        !fileUrl.startsWith('http://') &&
+        !fileUrl.startsWith('https://')
+      ) {
+        // API_BASE_URL = http://10.0.0.2:5000/api/v1
+        // Uploaded files are served from:
+        // http://10.0.0.2:5000/uploads/...
+        const backendUrl = API_BASE_URL.replace(
+          /\/api\/v1\/?$/,
+          ''
+        );
+
+        fileUrl = `${backendUrl}${fileUrl.startsWith('/') ? '' : '/'}${fileUrl}`;
+      }
+
+      console.log('Opening order file:', fileUrl);
+
+      const supported =
+        await Linking.canOpenURL(fileUrl);
+
+      if (!supported) {
+        Alert.alert(
+          'Cannot Open File',
+          'No application is available to open this file.'
+        );
+        return;
+      }
+
+      await Linking.openURL(fileUrl);
+    } catch (err) {
+      console.error(
+        'Open order file error:',
+        err
+      );
+
+      Alert.alert(
+        'Unable to Open File',
+        err.message ||
+          'Failed to open the order form.'
+      );
+    }
+  };
+
+  if (loading) {
+    return (
+      <Page>
+        <Text style={s.title}>
+          Order Form
+        </Text>
+
+        <Text>
+          Loading order form...
+        </Text>
+      </Page>
+    );
+  }
+
+  if (error || !site) {
+    return (
+      <Page>
+        <Text style={s.title}>
+          Order Form
+        </Text>
+
+        <Text style={styles.error}>
+          {error || 'Site not found.'}
+        </Text>
+      </Page>
+    );
+  }
+
+  const orderFile = site.orderFile;
+
+  const extension =
+    orderFile?.file_name
+      ?.split('.')
+      .pop()
+      ?.toUpperCase();
+
+  return (
+    <Page>
+      <Text style={s.title}>
+        Order Form
+      </Text>
+
+      <Text style={s.subtitle}>
+        {site.site_name}
+      </Text>
+
+      <View style={s.card}>
+        {orderFile ? (
+          <>
+            <Text style={s.cardTitle}>
+              {orderFile.file_name}
+            </Text>
+
+            <Text style={s.meta}>
+              {extension || 'DOCUMENT'}
+            </Text>
+
+            <Text style={s.meta}>
+              Order ID: {site.order_id}
+            </Text>
+
+            <PrimaryButton
+              title="Open Order Form"
+              onPress={openOrderFile}
+            />
+          </>
+        ) : (
+          <>
+            <Text style={s.cardTitle}>
+              No Order Form
+            </Text>
+
+            <Text style={s.meta}>
+              No order form has been uploaded
+              for this site yet.
+            </Text>
+          </>
+        )}
+      </View>
+    </Page>
+  );
+}
 
 export function InstallerVisitHistory({ route, navigation }) {
   const { token } = useAuth();

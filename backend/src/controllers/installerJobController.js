@@ -85,6 +85,7 @@ const getInstallerJobById = async (req, res) => {
 
     const installerId = installerResult.rows[0].id;
 
+    // Get job belonging to the logged-in installer
     const jobResult = await pool.query(
       `
       SELECT
@@ -106,7 +107,8 @@ const getInstallerJobById = async (req, res) => {
         j.created_at,
         j.updated_at
       FROM jobs j
-      JOIN cities c ON c.id = j.city_id
+      JOIN cities c
+        ON c.id = j.city_id
       WHERE j.id = $1
         AND j.installer_id = $2
       `,
@@ -120,6 +122,7 @@ const getInstallerJobById = async (req, res) => {
       });
     }
 
+    // Get door items
     const doorItemsResult = await pool.query(
       `
       SELECT
@@ -137,6 +140,7 @@ const getInstallerJobById = async (req, res) => {
       [id]
     );
 
+    // Get visits
     const visitsResult = await pool.query(
       `
       SELECT
@@ -159,16 +163,43 @@ const getInstallerJobById = async (req, res) => {
       [id, installerId]
     );
 
+    // Get uploaded order form
+    const orderFileResult = await pool.query(
+      `
+      SELECT
+        id,
+        file_name,
+        file_type,
+        file_url,
+        created_at
+      FROM order_files
+      WHERE job_id = $1
+      ORDER BY created_at DESC
+      LIMIT 1
+      `,
+      [id]
+    );
+
     return res.status(200).json({
       success: true,
       data: {
         ...jobResult.rows[0],
-        doorItems: doorItemsResult.rows,
-        visits: visitsResult.rows,
+
+        doorItems:
+          doorItemsResult.rows,
+
+        visits:
+          visitsResult.rows,
+
+        orderFile:
+          orderFileResult.rows[0] || null,
       },
     });
   } catch (error) {
-    console.error('Get installer job error:', error);
+    console.error(
+      'Get installer job error:',
+      error
+    );
 
     return res.status(500).json({
       success: false,
