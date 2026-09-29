@@ -97,8 +97,8 @@ export  function LoginScreen({ navigation }) {
               </View>
             ) : null}
 
-            <Text style={styles.label}>Email</Text>
-
+            <Text style={styles.label}>Email or Phone Number</Text>
+            
             <TextInput
               value={email}
               onChangeText={(text) => {
@@ -107,10 +107,10 @@ export  function LoginScreen({ navigation }) {
                   setErrorMessage('');
                 }
               }}
-              placeholder="Enter your email"
+              placeholder="Enter email or phone number"
               placeholderTextColor={colors.textSecondary}
               autoCapitalize="none"
-              autoComplete="email"
+              autoComplete="username"
               keyboardType="default"
               style={styles.input}
             />
