@@ -3033,11 +3033,10 @@ export function SiteDetails({ route, navigation }) {
           </Text>
 
           <Pressable
-            onPress={() => {
-              const fileUrl =
-                `${API_BASE_URL.replace('/api/v1', '')}${orderFile.file_url}`;
+            onPress={async () => {
+              const fileUrl = orderFile.file_url;
 
-              Linking.openURL(fileUrl);
+              await Linking.openURL(fileUrl);
             }}
           >
             <Text style={styles.add}>

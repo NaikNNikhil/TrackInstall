@@ -1,16 +1,5 @@
 const multer = require('multer');
 const path = require('path');
-const fs = require('fs');
-
-const uploadDirectory = path.join(
-  process.cwd(),
-  'uploads',
-  'order-forms'
-);
-
-fs.mkdirSync(uploadDirectory, {
-  recursive: true,
-});
 
 const allowedExtensions = [
   '.pdf',
@@ -20,24 +9,7 @@ const allowedExtensions = [
   '.docx',
 ];
 
-const storage = multer.diskStorage({
-  destination: (req, file, cb) => {
-    cb(null, uploadDirectory);
-  },
-
-  filename: (req, file, cb) => {
-    const extension = path.extname(file.originalname);
-
-    const safeName = path
-      .basename(file.originalname, extension)
-      .replace(/[^a-zA-Z0-9-_]/g, '_');
-
-    cb(
-      null,
-      `${Date.now()}-${safeName}${extension}`
-    );
-  },
-});
+const storage = multer.memoryStorage();
 
 const fileFilter = (req, file, cb) => {
   const extension = path

@@ -271,6 +271,11 @@ export function InstallerSiteDetails({ route, navigation }) {
   const { token } = useAuth();
   const { siteId } = route.params;
 
+  console.log(
+    'InstallerOrderForm siteId:',
+    siteId
+  );
+
   const [site, setSite] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -283,6 +288,11 @@ export function InstallerSiteDetails({ route, navigation }) {
       const response = await apiClient.get(
         `/installer/jobs/${siteId}`,
         { token }
+      );
+
+      console.log(
+        'InstallerOrderForm API response:',
+        response
       );
 
       setSite(response?.data || null);
@@ -599,28 +609,11 @@ export function InstallerOrderForm({ route }) {
         return;
       }
 
-      let fileUrl = site.orderFile.file_url;
-
-      // Full URL: use as it is
-      if (
-        !fileUrl.startsWith('http://') &&
-        !fileUrl.startsWith('https://')
-      ) {
-        // API_BASE_URL = http://10.0.0.2:5000/api/v1
-        // Uploaded files are served from:
-        // http://10.0.0.2:5000/uploads/...
-        const backendUrl = API_BASE_URL.replace(
-          /\/api\/v1\/?$/,
-          ''
-        );
-
-        fileUrl = `${backendUrl}${fileUrl.startsWith('/') ? '' : '/'}${fileUrl}`;
-      }
+      const fileUrl = site.orderFile.file_url;
 
       console.log('Opening order file:', fileUrl);
 
-      const supported =
-        await Linking.canOpenURL(fileUrl);
+      const supported = await Linking.canOpenURL(fileUrl);
 
       if (!supported) {
         Alert.alert(

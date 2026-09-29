@@ -1,5 +1,18 @@
 const pool = require('../config/database');
 
+const {
+  GetObjectCommand,
+} = require('@aws-sdk/client-s3');
+
+const {
+  getSignedUrl,
+} = require('@aws-sdk/s3-request-presigner');
+
+const {
+  s3Client,
+  S3_BUCKET,
+} = require('../config/s3');
+
 const getInstallerJobs = async (req, res) => {
   try {
     const installerIdResult = await pool.query(
@@ -180,6 +193,30 @@ const getInstallerJobById = async (req, res) => {
       [id]
     );
 
+    let orderFile = orderFileResult.rows[0] || null;
+
+    if (orderFile) {
+      const command = new GetObjectCommand({
+        Bucket: S3_BUCKET,
+        Key: orderFile.file_url,
+        ResponseContentType: orderFile.file_type,
+        ResponseContentDisposition: `inline; filename="${orderFile.file_name}"`,
+      });
+
+      const signedUrl = await getSignedUrl(
+        s3Client,
+        command,
+        {
+          expiresIn: 300,
+        }
+      );
+
+      orderFile = {
+        ...orderFile,
+        file_url: signedUrl,
+      };
+    }
+
     return res.status(200).json({
       success: true,
       data: {
@@ -191,8 +228,7 @@ const getInstallerJobById = async (req, res) => {
         visits:
           visitsResult.rows,
 
-        orderFile:
-          orderFileResult.rows[0] || null,
+        orderFile,
       },
     });
   } catch (error) {
