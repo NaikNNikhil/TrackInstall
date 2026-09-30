@@ -1,58 +1,57 @@
 require('dotenv').config();
 
 const bcrypt = require('bcrypt');
-
 const pool = require('../config/database');
 
-const seedUsers = async () => {
+const seedSuperAdmin = async () => {
   try {
-    const password = 'TrackInstall@123';
+    const name = process.env.SUPER_ADMIN_NAME || 'TrackInstall Super Admin';
+    const email =
+      process.env.SUPER_ADMIN_EMAIL || 'superadmin@trackinstall.local';
+    const phone =
+      process.env.SUPER_ADMIN_PHONE || '9503165705';
+    const password = process.env.SUPER_ADMIN_PASSWORD;
+
+    if (!password) {
+      throw new Error(
+        'SUPER_ADMIN_PASSWORD is not set in the environment.'
+      );
+    }
+
     const passwordHash = await bcrypt.hash(password, 10);
 
     await pool.query(
       `
       INSERT INTO users
-        (name, email, phone_number, password_hash, role)
+        (name, email, phone_number, password_hash, role, is_active)
       VALUES
-        ($1, $2, $3, $4, $5)
+        ($1, $2, $3, $4, 'SUPER_ADMIN', TRUE)
       ON CONFLICT (phone_number)
-      DO NOTHING
+      DO UPDATE SET
+        name = EXCLUDED.name,
+        email = EXCLUDED.email,
+        password_hash = EXCLUDED.password_hash,
+        role = 'SUPER_ADMIN',
+        is_active = TRUE,
+        updated_at = CURRENT_TIMESTAMP
       `,
       [
-        'TrackInstall Admin',
-        'admin@trackinstall.local',
-        '9000000001',
+        name,
+        email,
+        phone,
         passwordHash,
-        'ADMIN',
       ]
     );
 
-    await pool.query(
-      `
-      INSERT INTO users
-        (name, email, phone_number, password_hash, role)
-      VALUES
-        ($1, $2, $3, $4, $5)
-      ON CONFLICT (phone_number)
-      DO NOTHING
-      `,
-      [
-        'Rahul Patil',
-        null,
-        '9000000002',
-        passwordHash,
-        'INSTALLER',
-      ]
-    );
-
-    console.log('Development users seeded successfully.');
+    console.log('Super Admin seeded successfully.');
+    console.log(`Phone: ${phone}`);
 
     await pool.end();
   } catch (error) {
-    console.error('Seed users error:', error);
+    console.error('Seed Super Admin error:', error);
     await pool.end();
     process.exit(1);
   }
 };
 
-seedUsers();
+seedSuperAdmin();
