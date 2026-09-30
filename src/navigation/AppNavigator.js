@@ -42,6 +42,7 @@ import {
 
 import { colors } from '../theme';
 import { useAuth } from '../auth';
+import { Ionicons } from '@expo/vector-icons';
 
 const RootStack = createNativeStackNavigator();
 const AuthStack = createNativeStackNavigator();
@@ -82,16 +83,43 @@ function AdminTabs() {
       <Tabs.Screen
         name="Dashboard"
         component={Dashboard}
+        options={{
+          tabBarIcon: ({ color, size }) => (
+            <Ionicons
+              name="grid-outline"
+              size={size}
+              color={color}
+            />
+          ),
+        }}
       />
 
       <Tabs.Screen
         name="Cities"
         component={CitiesScreen}
+        options={{
+          tabBarIcon: ({ color, size }) => (
+            <Ionicons
+              name="business-outline"
+              size={size}
+              color={color}
+            />
+          ),
+        }}
       />
 
       <Tabs.Screen
         name="More"
         component={MoreScreen}
+        options={{
+          tabBarIcon: ({ color, size }) => (
+            <Ionicons
+              name="ellipsis-horizontal"
+              size={size}
+              color={color}
+            />
+          ),
+        }}
       />
     </Tabs.Navigator>
   );
@@ -230,19 +258,46 @@ function InstallerTabs() {
       <Tabs.Screen
         name="InstallerDashboard"
         component={InstallerDashboard}
-        options={{ title: 'Dashboard' }}
+        options={{
+          title: 'Dashboard',
+          tabBarIcon: ({ color, size }) => (
+            <Ionicons
+              name="grid-outline"
+              size={size}
+              color={color}
+            />
+          ),
+        }}
       />
 
       <Tabs.Screen
         name="AssignedSites"
         component={AssignedSites}
-        options={{ title: 'Sites' }}
+        options={{
+          title: 'Sites',
+          tabBarIcon: ({ color, size }) => (
+            <Ionicons
+              name="location-outline"
+              size={size}
+              color={color}
+            />
+          ),
+        }}
       />
 
       <Tabs.Screen
         name="InstallerMore"
         component={InstallerMore}
-        options={{ title: 'More' }}
+        options={{
+          title: 'More',
+          tabBarIcon: ({ color, size }) => (
+            <Ionicons
+              name="ellipsis-horizontal"
+              size={size}
+              color={color}
+            />
+          ),
+        }}
       />
     </Tabs.Navigator>
   );
