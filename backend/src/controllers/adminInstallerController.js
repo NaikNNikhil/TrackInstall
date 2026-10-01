@@ -14,7 +14,15 @@ const getInstallers = async (req, res) => {
         c.id AS city_id,
         c.name AS city_name,
         i.is_active,
-        i.visiting_charge,
+
+        (
+          SELECT idc.visiting_charge
+          FROM installer_door_charges idc
+          WHERE idc.installer_id = i.id
+          ORDER BY idc.effective_from DESC
+          LIMIT 1
+        ) AS visiting_charge,
+
         i.created_at,
         i.updated_at
       FROM installers i
@@ -52,7 +60,15 @@ const getInstallerById = async (req, res) => {
         c.id AS city_id,
         c.name AS city_name,
         i.is_active,
-        i.visiting_charge,
+
+        (
+          SELECT idc.visiting_charge
+          FROM installer_door_charges idc
+          WHERE idc.installer_id = i.id
+          ORDER BY idc.effective_from DESC
+          LIMIT 1
+        ) AS visiting_charge,
+
         i.created_at,
         i.updated_at
       FROM installers i
@@ -78,11 +94,13 @@ const getInstallerById = async (req, res) => {
         dt.id AS door_type_id,
         dt.name AS door_type,
         idc.installation_charge,
+        idc.visiting_charge,
         idc.effective_from
       FROM installer_door_charges idc
-      JOIN door_types dt ON dt.id = idc.door_type_id
+      JOIN door_types dt
+        ON dt.id = idc.door_type_id
       WHERE idc.installer_id = $1
-      ORDER BY dt.id
+      ORDER BY dt.id, idc.effective_from DESC
       `,
       [id]
     );
@@ -163,9 +181,9 @@ const createInstaller = async (req, res) => {
       .update(activationToken)
       .digest('hex');
 
-      const activationExpiresAt = new Date(
-        Date.now() + 24 * 60 * 60 * 1000
-    ); // 24 hours from now
+    const activationExpiresAt = new Date(
+      Date.now() + 24 * 60 * 60 * 1000
+    );
 
     const userResult = await client.query(
       `
@@ -195,21 +213,40 @@ const createInstaller = async (req, res) => {
 
     const user = userResult.rows[0];
 
-    const installerResult = await client.query(`
+    /*
+     * visiting_charge does NOT belong to installers.
+     * Installer-level pricing is stored in
+     * installer_door_charges.
+     */
+    const installerResult = await client.query(
+      `
       INSERT INTO installers
-        (user_id, city_id, visiting_charge, is_active)
+        (
+          user_id,
+          city_id,
+          is_active
+        )
       VALUES
-        ($1, $2, $3, $4)
-      RETURNING id, user_id, city_id, visiting_charge, is_active
-    `, [
-      user.id,
-      cityId,
-      Number(visitingCharge || 0),
-      false,
-    ]);
+        ($1, $2, $3)
+      RETURNING
+        id,
+        user_id,
+        city_id,
+        is_active
+      `,
+      [
+        user.id,
+        cityId,
+        false,
+      ]
+    );
 
     const installer = installerResult.rows[0];
 
+    /*
+     * Store installation charge and visiting charge
+     * in installer_door_charges.
+     */
     for (const charge of doorCharges) {
       await client.query(
         `
@@ -267,12 +304,12 @@ const createInstaller = async (req, res) => {
       message: 'Installer created successfully',
       data: {
         installerId: installer.id,
-        userId: user.id,
+        userId: installer.user_id,
         name: user.name,
         email: user.email,
         phoneNumber: user.phone_number,
         cityId: installer.city_id,
-        visitingCharge: installer.visiting_charge,
+        visitingCharge: Number(visitingCharge || 0),
         doorCharges,
         ...(process.env.NODE_ENV !== 'production'
           ? { activationToken }
@@ -325,7 +362,6 @@ const updateInstaller = async (req, res) => {
         i.id,
         i.user_id,
         i.city_id,
-        i.visiting_charge,
         i.is_active,
         u.name,
         u.email,
@@ -348,11 +384,33 @@ const updateInstaller = async (req, res) => {
 
     const current = existingResult.rows[0];
 
+    /*
+     * Get the current visiting charge from
+     * installer_door_charges.
+     */
+    const currentChargeResult = await client.query(
+      `
+      SELECT visiting_charge
+      FROM installer_door_charges
+      WHERE installer_id = $1
+      ORDER BY effective_from DESC
+      LIMIT 1
+      `,
+      [id]
+    );
+
+    const currentVisitingCharge =
+      currentChargeResult.rows.length > 0
+        ? Number(currentChargeResult.rows[0].visiting_charge)
+        : 0;
+
     const updatedName =
       name !== undefined ? name.trim() : current.name;
 
     const updatedEmail =
-      email !== undefined ? email.trim() || null : current.email;
+      email !== undefined
+        ? email.trim() || null
+        : current.email;
 
     const updatedPhone =
       phoneNumber !== undefined
@@ -360,12 +418,14 @@ const updateInstaller = async (req, res) => {
         : current.phone_number;
 
     const updatedCityId =
-      cityId !== undefined ? cityId : current.city_id;
+      cityId !== undefined
+        ? cityId
+        : current.city_id;
 
     const updatedVisitingCharge =
       visitingCharge !== undefined
         ? Number(visitingCharge)
-        : Number(current.visiting_charge);
+        : currentVisitingCharge;
 
     const updatedIsActive =
       isActive !== undefined
@@ -413,20 +473,22 @@ const updateInstaller = async (req, res) => {
       ]
     );
 
-    // Update installer information
+    /*
+     * Update installer information.
+     *
+     * visiting_charge is NOT stored in installers.
+     */
     await client.query(
       `
       UPDATE installers
       SET
         city_id = $1,
-        visiting_charge = $2,
-        is_active = $3,
+        is_active = $2,
         updated_at = CURRENT_TIMESTAMP
-      WHERE id = $4
+      WHERE id = $3
       `,
       [
         updatedCityId,
-        updatedVisitingCharge,
         updatedIsActive,
         id,
       ]
@@ -438,7 +500,8 @@ const updateInstaller = async (req, res) => {
         await client.query(
           `
           UPDATE installer_door_charges
-          SET installation_charge = $1
+          SET
+            installation_charge = $1
           WHERE installer_id = $2
             AND door_type_id = $3
           `,
@@ -450,6 +513,10 @@ const updateInstaller = async (req, res) => {
         );
       }
 
+      /*
+       * Update visiting charge for all
+       * current installer door-charge records.
+       */
       await client.query(
         `
         UPDATE installer_door_charges
@@ -486,7 +553,7 @@ const updateInstaller = async (req, res) => {
           email: current.email,
           phoneNumber: current.phone_number,
           cityId: current.city_id,
-          visitingCharge: current.visiting_charge,
+          visitingCharge: currentVisitingCharge,
           isActive: current.is_active,
         }),
         JSON.stringify({
@@ -547,7 +614,8 @@ const resendActivation = async (req, res) => {
 
     await client.query('BEGIN');
 
-    const result = await client.query(`
+    const result = await client.query(
+      `
       SELECT
         i.id,
         u.id AS user_id,
@@ -557,7 +625,9 @@ const resendActivation = async (req, res) => {
       JOIN users u ON u.id = i.user_id
       WHERE i.id = $1
       LIMIT 1
-    `, [id]);
+      `,
+      [id]
+    );
 
     if (result.rows.length === 0) {
       await client.query('ROLLBACK');
@@ -594,18 +664,21 @@ const resendActivation = async (req, res) => {
       Date.now() + 24 * 60 * 60 * 1000
     );
 
-    await client.query(`
+    await client.query(
+      `
       UPDATE users
       SET
         activation_token_hash = $1,
         activation_expires_at = $2,
         updated_at = CURRENT_TIMESTAMP
       WHERE id = $3
-    `, [
-      activationTokenHash,
-      activationExpiresAt,
-      installer.user_id,
-    ]);
+      `,
+      [
+        activationTokenHash,
+        activationExpiresAt,
+        installer.user_id,
+      ]
+    );
 
     await client.query('COMMIT');
 
