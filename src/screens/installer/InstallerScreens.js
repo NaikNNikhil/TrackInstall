@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { Alert, Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View, Linking } from 'react-native';
 import AppHeader from '../../components/AppHeader';
 import PrimaryButton from '../../components/PrimaryButton';
@@ -10,6 +10,7 @@ import { money, useAdminData } from '../../data/AdminDataContext';
 import { colors, spacing, typography } from '../../theme';
 import { useAuth } from '../../auth';
 import { API_BASE_URL, apiClient } from '../../api';
+import { useFocusEffect } from '@react-navigation/native';
 
 const INSTALLER_ID = 'i1';
 const Page = ({ children }) => <ScreenContainer><ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={s.page}>{children}</ScrollView></ScreenContainer>;
@@ -1139,7 +1140,146 @@ export function InstallerAddVisit({ route, navigation }) {
   );
 }
 
-export function InstallerExtraRequests() { const { sites, visits } = useAdminData(); const [filter, setFilter] = useState('All'); const list = visits.filter((visit) => visit.type === 'EXTRA' && sites.some((site) => site.id === visit.siteId && site.installerId === INSTALLER_ID) && (filter === 'All' || visit.status === filter)); return <Page><Text style={s.title}>Extra Visit Requests</Text><Text style={s.subtitle}>Track approval status for submitted extra visits.</Text><FilterChips options={['All', 'PENDING_APPROVAL', 'APPROVED', 'REJECTED']} selected={filter} onSelect={setFilter} />{list.length ? list.slice().reverse().map((visit) => <VisitCard key={visit.id} visit={visit} site={sites.find((site) => site.id === visit.siteId)} />) : <EmptyState text="No extra visit requests found." />}</Page>; }
+export function InstallerExtraRequests() {
+  const { token } = useAuth();
+
+  const [visits, setVisits] = useState([]);
+  const [sites, setSites] = useState([]);
+  const [filter, setFilter] = useState('All');
+  const [loading, setLoading] = useState(true);
+
+  const loadExtraVisits = async () => {
+    try {
+      setLoading(true);
+
+      // Get all jobs/sites assigned to this installer
+      const jobsResponse = await apiClient.get(
+        '/installer/jobs',
+        { token }
+      );
+
+      const jobs = jobsResponse?.data || [];
+
+      // Get visits for every assigned job
+      const visitResponses = await Promise.all(
+        jobs.map((job) =>
+          apiClient.get(
+            `/installer/jobs/${job.id}/visits`,
+            { token }
+          )
+        )
+      );
+
+      const allVisits = [];
+
+      visitResponses.forEach((response, index) => {
+        const jobVisits = response?.data || [];
+        const job = jobs[index];
+
+        jobVisits.forEach((visit) => {
+          if (visit.type === 'EXTRA') {
+            allVisits.push({
+              ...visit,
+              siteId: job.id,
+              site_name: job.site_name || '',
+              order_id: job.order_id || '',
+            });
+          }
+        });
+      });
+
+      setVisits(allVisits);
+      setSites(jobs);
+    } catch (err) {
+      Alert.alert(
+        'Unable to Load Extra Visits',
+        err.message || 'Failed to load extra visit requests.'
+      );
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  React.useEffect(() => {
+    loadExtraVisits();
+  }, [token]);
+
+  const filteredVisits = visits.filter(
+    (visit) =>
+      filter === 'All' ||
+      visit.status === filter
+  );
+
+  if (loading) {
+    return (
+      <Page>
+        <Text style={s.title}>
+          Extra Visit Requests
+        </Text>
+
+        <Text>
+          Loading extra visit requests...
+        </Text>
+      </Page>
+    );
+  }
+
+  return (
+    <Page>
+      <Text style={s.title}>
+        Extra Visit Requests
+      </Text>
+
+      <Text style={s.subtitle}>
+        Track approval status for submitted extra visits.
+      </Text>
+
+      <FilterChips
+        options={[
+          'All',
+          'PENDING_APPROVAL',
+          'APPROVED',
+          'REJECTED',
+        ]}
+        selected={filter}
+        onSelect={setFilter}
+      />
+
+      {filteredVisits.length ? (
+        filteredVisits
+          .slice()
+          .reverse()
+          .map((visit) => {
+            const site = sites.find(
+              (job) => job.id === visit.job_id
+            );
+
+            return (
+              <VisitCard
+                key={visit.id}
+                visit={{
+                  ...visit,
+                  number: visit.visit_number,
+                  date: visit.visit_date,
+                  reason: visit.reason || '',
+                  remark: visit.remark || '',
+                }}
+                site={{
+                  id: visit.job_id,
+                  name:
+                    visit.site_name ||
+                    site?.site_name ||
+                    'Installation Site',
+                }}
+              />
+            );
+          })
+      ) : (
+        <EmptyState text="No extra visit requests found." />
+      )}
+    </Page>
+  );
+}
 
 export function InstallerMore({ navigation }) {
   const { logout: authLogout, user } = useAuth();
