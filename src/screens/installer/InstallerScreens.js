@@ -907,35 +907,35 @@ export function InstallerAddVisit({ route, navigation }) {
 
   const visitReasons = [
     {
-      id: '233626e6-70d8-4ce1-b89a-21c9e94b6733',
+      id: '4c456147-12a0-4e52-acf8-ca5d7c53cbd2',
       name: 'Customer unavailable',
     },
     {
-      id: '31ddbc79-da86-437e-8369-8a9bef61193d',
+      id: 'b9650019-c44f-4de9-8813-81ebdb398a15',
       name: 'Material unavailable',
     },
     {
-      id: 'e221434e-b12d-469d-8ca4-c30e615d254b',
+      id: '21cda37f-0102-4493-8742-a574e019bc51',
       name: 'Site not ready',
     },
     {
-      id: 'ce046eb3-008e-43cc-b57b-80e50e244e0c',
+      id: '3a5b6106-b89c-477c-bd9c-971ae962b217',
       name: 'Rework/Correction',
     },
     {
-      id: '2f7c7b5a-0223-4f03-b271-5f389402f819',
+      id: '65830ffa-07c3-40c4-aaa2-9323e5a4cd06',
       name: 'Installation incomplete',
     },
     {
-      id: '89f92b41-d2c8-4a83-b31b-0571392b3031',
+      id: 'cb9c9b52-7e46-482f-90e7-f5ef00503c35',
       name: 'Customer requested additional visit',
     },
     {
-      id: '10e92a09-a3f2-4a24-87d9-7ccc8af7320f',
+      id: '7698896b-d915-4d49-bc9f-b99a38761c59',
       name: 'Technical issue',
     },
     {
-      id: '3b516c61-26e7-4643-a948-a0148e067c14',
+      id: '8909c0f9-a0da-489c-9baf-af85719ceef3',
       name: 'Other',
     },
   ];

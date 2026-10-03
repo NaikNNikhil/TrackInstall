@@ -15,12 +15,12 @@ import { File, UploadType } from 'expo-file-system';
 const Page = ({ children }) => <ScreenContainer><ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={s.page}>{children}</ScrollView></ScreenContainer>;
 
 const DOOR_TYPE_IDS = {
-    'Single Leaf Dead Lock': '724d8caf-483f-47f6-9460-d86a9b90b7b5',
-    'Single Leaf Panic Bar': '9a0e492e-325b-4372-80a7-2c1b07dc042d',
-    'Double Leaf Dead Lock': 'bfdbd99f-feef-491d-9c9c-757761ab448c',
-    'Double Leaf Panic Bar': 'e6a09665-d325-4f81-958a-fe423263d081',
-    'Glass Door': 'e31726c7-c7ec-4036-878c-1db96a1825a2',
-  };
+  'Single Leaf Dead Lock': '9f25e242-246b-4d7c-964f-0bdfd04b2760',
+  'Single Leaf Panic Bar': '4d753233-7113-4307-bb80-838a23df26b0',
+  'Double Leaf Dead Lock': '0ad21ada-d93e-46f9-afb6-5e37c7ffb19b',
+  'Double Leaf Panic Bar': '39df352f-9318-4d63-92ec-ce207b243059',
+  'Glass Door': 'e4a8cbf8-eea4-47b3-838a-d7c3b2917167',
+};
 
 const DOOR_TYPES = Object.keys(DOOR_TYPE_IDS);
 
@@ -189,7 +189,8 @@ const SiteRow = ({ site, navigation }) => {
 };
 
 export function Dashboard({ navigation }) {
-  const { token } = useAuth();
+  const { token, role } = useAuth();
+  console.log('[DASHBOARD ROLE]', role);
 
   const [installers, setInstallers] = useState([]);
   const [sites, setSites] = useState([]);
@@ -305,8 +306,9 @@ export function Dashboard({ navigation }) {
   if (loading) {
     return (
       <Page>
-        <AppHeader greeting="Welcome, Admin" />
-
+        <AppHeader
+          greeting={`Welcome, ${role === 'SUPER_ADMIN' ? 'Super Admin' : 'Admin'}`}
+        />
         <Text style={s.title}>
           Admin Dashboard
         </Text>
@@ -320,8 +322,9 @@ export function Dashboard({ navigation }) {
 
   return (
     <Page>
-      <AppHeader greeting="Welcome, Admin" />
-
+      <AppHeader
+        greeting={`Welcome, ${role === 'SUPER_ADMIN' ? 'Super Admin' : 'Admin'}`}
+      />
       <Text style={s.title}>
         Admin Dashboard
       </Text>
@@ -1243,10 +1246,10 @@ export function AddInstaller({ navigation }) {
     setForm((x) => ({ ...x, [key]: value }));
 
   const save = async () => {
-    if (!form.name.trim() || !form.phone.trim() || !form.email.trim()) {
+    if (!form.name.trim() || !form.phone.trim()) {
       Alert.alert(
         'Missing details',
-        'Please complete name, phone and email.'
+        'Please complete name and phone.'
       );
       return;
     }
@@ -1264,8 +1267,7 @@ export function AddInstaller({ navigation }) {
       setSaving(true);
 
       const doorCharges = doorTypes.map((type) => {
-        const doorTypeId = doorTypeIds[type];
-
+        const doorTypeId = DOOR_TYPE_IDS[type];
         if (!doorTypeId) {
           throw new Error(`Missing door type ID for: ${type}`);
         }
@@ -1279,7 +1281,7 @@ export function AddInstaller({ navigation }) {
       const payload = {
         name: form.name.trim(),
         phoneNumber: form.phone.trim(),
-        email: form.email.trim(),
+        email: form.email.trim() || null,
         cityId: selectedCity.id,
         visitingCharge: Number(form.visit || 0),
         doorCharges,
@@ -3988,7 +3990,7 @@ export function AdminsScreen({ navigation }) {
       );
 
       const activationToken =
-        response?.activationToken;
+        response?.data?.activationToken;
 
       resetForm();
       setShowAddForm(false);

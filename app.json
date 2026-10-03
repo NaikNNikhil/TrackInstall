@@ -6,20 +6,41 @@
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
+
     "ios": {
       "supportsTablet": true
     },
+
     "android": {
+      "usesCleartextTraffic": true,
       "adaptiveIcon": {
         "backgroundColor": "#E6F4FE",
         "foregroundImage": "./assets/android-icon-foreground.png",
         "backgroundImage": "./assets/android-icon-background.png",
         "monochromeImage": "./assets/android-icon-monochrome.png"
       },
-      "package": "com.anonymous.TrackInstall"
+      "package": "com.suniticonstruction.trackinstall"
     },
+
     "web": {
       "favicon": "./assets/favicon.png"
-    }
+    },
+
+    "extra": {
+      "eas": {
+        "projectId": "182b7fc5-a83f-4d3a-9761-acaf7d5db411"
+      }
+    },
+
+    "plugins": [
+      [
+        "expo-build-properties",
+        {
+          "android": {
+            "usesCleartextTraffic": true
+          }
+        }
+      ]
+    ]
   }
 }

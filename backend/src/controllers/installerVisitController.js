@@ -25,11 +25,17 @@ const createInstallerVisit = async (req, res) => {
     const installerResult = await client.query(
       `
       SELECT
-        id,
-        visiting_charge
-      FROM installers
-      WHERE user_id = $1
-        AND is_active = TRUE
+        i.id,
+        (
+          SELECT idc.visiting_charge
+          FROM installer_door_charges idc
+          WHERE idc.installer_id = i.id
+          ORDER BY idc.effective_from DESC
+          LIMIT 1
+        ) AS visiting_charge
+      FROM installers i
+      WHERE i.user_id = $1
+        AND i.is_active = TRUE
       `,
       [req.user.userId]
     );

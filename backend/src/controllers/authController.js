@@ -48,6 +48,13 @@ const login = async (req, res) => {
       });
     }
 
+    if (!user.password_hash) {
+      return res.status(403).json({
+        success: false,
+        message: 'Account is not activated. Please use your activation code to set your password.',
+      });
+    }
+
     const passwordMatches = await bcrypt.compare(
       password,
       user.password_hash
@@ -136,13 +143,6 @@ const activateAccount = async (req, res) => {
       return res.status(400).json({
         success: false,
         message: 'Activation token has expired',
-      });
-    }
-
-    if (user.is_active) {
-      return res.status(400).json({
-        success: false,
-        message: 'Account is already activated',
       });
     }
 

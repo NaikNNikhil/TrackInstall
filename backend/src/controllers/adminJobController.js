@@ -74,9 +74,15 @@ const createJob = async (req, res) => {
       SELECT
         i.id,
         i.city_id,
-        i.visiting_charge,
         i.is_active,
-        u.name AS installer_name
+        u.name AS installer_name,
+        (
+          SELECT idc.visiting_charge
+          FROM installer_door_charges idc
+          WHERE idc.installer_id = i.id
+          ORDER BY idc.effective_from DESC
+          LIMIT 1
+        ) AS visiting_charge
       FROM installers i
       JOIN users u ON u.id = i.user_id
       WHERE i.id = $1

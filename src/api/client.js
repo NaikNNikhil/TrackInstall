@@ -103,12 +103,20 @@ export async function request(
 
   let response;
 
+  console.log('[API] REQUEST URL:', url);
+  console.log('[API] REQUEST METHOD:', config.method);
+
   try {
     response = await fetch(
       url,
       config
     );
+
+    console.log('[API] RESPONSE STATUS:', response.status);
   } catch (networkError) {
+    console.log('[API] NETWORK ERROR:', networkError);
+    console.log('[API] FAILED URL:', url);
+
     throw new ApiError(
       'Network request failed. Please check server connectivity.',
       0,
@@ -116,6 +124,7 @@ export async function request(
     );
   }
 
+  
   let responseData = null;
 
   const contentType =

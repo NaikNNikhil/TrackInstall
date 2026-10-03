@@ -154,15 +154,12 @@ const createAdmin = async (req, res) => {
     const response = {
       success: true,
       message: 'Admin created successfully',
-      data: userResult.rows[0],
+      data: {
+        ...userResult.rows[0],
+        activationToken,
+        activationExpiresAt,
+      },
     };
-
-    // Development-only activation code.
-    // Do not expose this in production.
-    if (process.env.NODE_ENV !== 'production') {
-      response.activationToken = activationToken;
-      response.activationExpiresAt = activationExpiresAt;
-    }
 
     return res.status(201).json(response);
   } catch (error) {
@@ -199,6 +196,8 @@ const deactivateAdmin = async (req, res) => {
         updated_at = CURRENT_TIMESTAMP
       WHERE id = $1
         AND role = 'ADMIN'
+        AND activation_token_hash IS NULL
+        AND password_hash IS NOT NULL
       RETURNING
         id,
         name,
@@ -246,6 +245,8 @@ const reactivateAdmin = async (req, res) => {
         updated_at = CURRENT_TIMESTAMP
       WHERE id = $1
         AND role = 'ADMIN'
+        AND activation_token_hash IS NULL
+        AND password_hash IS NOT NULL
       RETURNING
         id,
         name,

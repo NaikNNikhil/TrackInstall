@@ -302,7 +302,7 @@ const createInstaller = async (req, res) => {
     return res.status(201).json({
       success: true,
       message: 'Installer created successfully',
-      data: {
+     data: {
         installerId: installer.id,
         userId: installer.user_id,
         name: user.name,
@@ -311,9 +311,8 @@ const createInstaller = async (req, res) => {
         cityId: installer.city_id,
         visitingCharge: Number(visitingCharge || 0),
         doorCharges,
-        ...(process.env.NODE_ENV !== 'production'
-          ? { activationToken }
-          : {}),
+        activationToken,
+        activationExpiresAt,
       },
     });
   } catch (error) {
@@ -405,15 +404,17 @@ const updateInstaller = async (req, res) => {
         : 0;
 
     const updatedName =
-      name !== undefined ? name.trim() : current.name;
+      name !== undefined && name !== null
+        ? name.trim()
+        : current.name;
 
     const updatedEmail =
-      email !== undefined
+      email !== undefined && email !== null
         ? email.trim() || null
         : current.email;
 
     const updatedPhone =
-      phoneNumber !== undefined
+      phoneNumber !== undefined && phoneNumber !== null
         ? phoneNumber.trim()
         : current.phone_number;
 
@@ -688,9 +689,8 @@ const resendActivation = async (req, res) => {
       data: {
         installerId: installer.id,
         name: installer.name,
-        ...(process.env.NODE_ENV !== 'production'
-          ? { activationToken }
-          : {}),
+        activationToken,
+        activationExpiresAt,
       },
     });
   } catch (error) {
