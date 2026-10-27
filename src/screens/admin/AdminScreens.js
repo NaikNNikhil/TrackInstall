@@ -165,10 +165,35 @@ const SiteRow = ({ site, navigation }) => {
         })
       }
     >
-      <View style={s.row}>
-        <Text style={s.cardTitle}>{site.site_name}</Text>
-        <StatusBadge status={site.status} />
+      
+      <View
+        style={[
+          s.row,
+          {
+            alignItems: 'flex-start',
+            width: '100%',
+          },
+        ]}
+      >
+        <Text
+          style={[
+            s.cardTitle,
+            {
+              flex: 1,
+              minWidth: 0,
+              flexShrink: 1,
+              marginRight: spacing.sm,
+            },
+          ]}
+        >
+          {site.customer_name || site.site_name || 'Customer'}
+        </Text>
+
+        <View style={{ flexShrink: 0, maxWidth: '40%' }}>
+          <StatusBadge status={site.status} />
+        </View>
       </View>
+
 
       <Text style={s.meta}>
         {site.order_id} • {site.city_name} • {site.installer_name}
@@ -2922,8 +2947,16 @@ export function SiteDetails({ route, navigation }) {
       </Text>
 
       <View style={s.card}>
-      <View style={s.row}>
-        <View>
+      <View
+        style={[
+          s.row,
+          {
+            alignItems: 'flex-start',
+            width: '100%',
+          },
+        ]}
+      >
+        <View style={{ flex: 1, minWidth: 0, marginRight: spacing.sm }}>
           <Text style={s.cardTitle}>
             {site.customer_name}
           </Text>
